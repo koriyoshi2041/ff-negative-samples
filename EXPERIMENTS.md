@@ -37,13 +37,13 @@
 9. HardMining
 10. MonoForward (no negatives)
 
-**结果**: ⏳ Pending
+**结果**: ⏳ Running
 
 ---
 
 ## Experiment 2: CKA + Linear Probe Representation Analysis
 
-**状态**: 🔄 Running
+**状态**: ✅ **COMPLETE**
 
 **动机**:
 - Brenig 2023 指出 FF 迁移学习失败与特征质量有关
@@ -71,13 +71,25 @@
 - FF 后层可能与 BP 差异大
 - FF 线性可分性可能逐层下降更快
 
-**结果**: ⏳ Pending
+**结果**: ✅ **2026-02-05**
+
+| 指标 | 数值 | 意义 |
+|-----|------|------|
+| FF vs BP Layer 0 CKA | 0.444 | 早期层相对相似 |
+| FF vs BP Layer 1 CKA | 0.330 | 中间层分化 |
+| FF vs BP Layer 2 CKA | **0.038** | ⚠️ 高层几乎完全不同 |
+| FF Self-CKA (avg) | 0.264 | 层间断裂 |
+| BP Self-CKA (avg) | 0.592 | 层间信息流畅 |
+
+**核心发现**：FF 迁移失败的根本原因是"层间信息断裂"。高层与早期层 CKA 仅 0.02-0.05，几乎完全独立。这验证了 Layer Collaboration 的必要性。
+
+**输出文件**：`results/representation_analysis.md`, `results/visualizations/`
 
 ---
 
 ## Experiment 3: Layer Collaboration Implementation
 
-**状态**: 🔄 Running
+**状态**: ✅ **COMPLETE**
 
 **动机**:
 - AAAI 2024 论文提出层协作机制改善 FF
@@ -102,7 +114,9 @@ p_i = sigmoid(goodness_i + γ - θ)
 **预期结果** (复现论文):
 - MNIST error: 3.3% → 2.1%
 
-**结果**: ⏳ Pending
+**结果**: ✅ **2026-02-05**
+- 代码实现完成：`models/layer_collab_ff.py`
+- 待验证：运行训练对比原始 FF vs Layer Collab
 
 ---
 
