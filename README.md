@@ -9,6 +9,16 @@
 1. **Negative Sample Strategy Comparison**: First systematic comparison of 10+ negative sample generation strategies for FF algorithm
 2. **Transfer Learning Analysis**: Investigate why FF fails at transfer learning and potential solutions (Layer Collaboration, etc.)
 
+## 📖 Research Significance
+
+### Why Systematic Negative Sample Comparison Matters
+
+The Forward-Forward algorithm's performance is fundamentally tied to the quality of negative samples — yet **no prior work has systematically compared different strategies**. Hinton's original paper proposed label embedding, but subsequent works introduced mixing, masking, self-contrastive, and even negative-free variants (MonoForward, CwComp) without head-to-head comparison. This gap leaves practitioners without guidance on which strategy to use and researchers without understanding of *why* certain approaches work better. Our systematic comparison across 10 strategies aims to: (1) establish empirical baselines, (2) identify which properties make negatives effective (hardness? diversity? distribution gap?), and (3) inform the design of next-generation strategies.
+
+### Why Layer Collaboration + Transfer Learning is a Critical Gap
+
+Brenig et al. (2023) demonstrated that FF's transfer learning performance "significantly lags behind BP in ALL studied settings" — with gaps up to 38.9%. They attributed this to FF's layer-wise loss functions discarding information unnecessary for the current task. The Layer Collaboration mechanism (AAAI 2024) was proposed to address FF's layer isolation problem by introducing global goodness signals. **However, the Layer Collaboration paper did not test transfer learning.** This is a critical gap: if layer collaboration improves information flow between layers, it *should* help preserve transferable features — but this hypothesis remains untested. Our work fills this gap by directly measuring whether Layer Collaboration improves FF's transfer learning, potentially identifying a path to make FF practically useful for real-world scenarios where pre-training and fine-tuning are essential.
+
 ## 📊 Key Findings
 
 ### Why FF Fails at Transfer Learning (Brenig et al., 2023)
