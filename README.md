@@ -33,10 +33,16 @@ Brenig et al. (2023) demonstrated that FF's transfer learning performance "signi
 |--------|-------|-------------|
 | FF vs BP Layer 0 CKA | 0.444 | Early layers similar |
 | FF vs BP Layer 2 CKA | **0.038** | ⚠️ High layers completely different |
+| **FF L0↔L2 Self-CKA** | **0.025** | ⚠️ **Catastrophic layer disconnection** |
 | FF Self-CKA (avg) | 0.264 | Layer disconnection |
 | BP Self-CKA (avg) | 0.592 | Information flows well |
 
-**Core Insight**: FF's transfer failure is caused by **layer disconnection** — high layers have CKA ~0.03 with early layers, meaning they learn almost independent features. This validates the need for Layer Collaboration.
+**Core Insight**: FF's transfer failure is caused by **catastrophic layer disconnection**:
+- FF Layer 0 ↔ Layer 2 CKA = **0.025** (almost completely independent!)
+- BP's minimum cross-layer CKA = 0.36 (14× higher)
+- High layers learn features with no connection to early layers, making transfer impossible
+
+This validates the need for Layer Collaboration to restore information flow.
 
 ### Why FF Fails at Transfer Learning (Brenig et al., 2023)
 - FF matches BP on source task training, but **transfer performance significantly lags behind** (up to 38.9% gap)
