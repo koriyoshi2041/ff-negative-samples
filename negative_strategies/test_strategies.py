@@ -55,21 +55,21 @@ def test_strategy_basic(strategy: NegativeStrategy, name: str, device='cpu'):
     print(f"\n{'='*60}")
     print(f"Testing: {name}")
     print(f"{'='*60}")
-    
+
     # Test 1: Configuration
     print(f"  Config: {strategy.get_config()}")
     print(f"  Requires labels: {strategy.requires_labels}")
-    
+
     # Test 2: Generate with image input
     images, labels = create_dummy_data(batch_size=16, device=device)
-    
+
     try:
         negatives = strategy.generate(images, labels)
         print(f"  ✓ Generate from images: {images.shape} -> {negatives.shape}")
     except Exception as e:
         print(f"  ✗ Generate from images failed: {e}")
         return False
-    
+
     # Test 3: Generate with flattened input
     flat_images = images.view(16, -1)
     try:
@@ -78,24 +78,38 @@ def test_strategy_basic(strategy: NegativeStrategy, name: str, device='cpu'):
     except Exception as e:
         print(f"  ✗ Generate from flat failed: {e}")
         return False
-    
+
     # Test 4: Check output shape matches
-    expected_shape = (16, 28 * 28)
+    # SCFF strategy uses concatenation, so output is 2x input dimension
+    requires_concat = getattr(strategy, 'requires_concat_layer', False)
+    num_negatives = getattr(strategy, 'num_negatives', 1)
+    if requires_concat:
+        expected_shape = (16 * num_negatives, 28 * 28 * 2)  # 2x dimension for concatenation
+    else:
+        expected_shape = (16, 28 * 28)
+
     if negatives.shape != expected_shape:
         print(f"  ✗ Shape mismatch: expected {expected_shape}, got {negatives.shape}")
         return False
     print(f"  ✓ Output shape correct: {negatives.shape}")
-    
+
     # Test 5: Check no NaN/Inf
     if torch.isnan(negatives).any() or torch.isinf(negatives).any():
         print(f"  ✗ Output contains NaN or Inf")
         return False
     print(f"  ✓ No NaN/Inf in output")
-    
+
     # Test 6: create_positive if available
     try:
         positives = strategy.create_positive(images, labels)
         print(f"  ✓ Create positive: {positives.shape}")
+
+        # Verify positive shape for SCFF
+        if requires_concat:
+            expected_pos_shape = (16, 28 * 28 * 2)
+            if positives.shape != expected_pos_shape:
+                print(f"  ✗ Positive shape mismatch: expected {expected_pos_shape}, got {positives.shape}")
+                return False
     except Exception as e:
         print(f"  ○ Create positive not implemented (using default)")
     
@@ -109,24 +123,28 @@ def test_strategy_basic(strategy: NegativeStrategy, name: str, device='cpu'):
 
 class SimpleFFLayer(nn.Module):
     """Simplified FF layer for testing."""
-    
+
     def __init__(self, in_features: int, out_features: int, threshold: float = 2.0):
         super().__init__()
         self.linear = nn.Linear(in_features, out_features)
         self.relu = nn.ReLU()
         self.threshold = threshold
-        
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_norm = x / (x.norm(2, dim=1, keepdim=True) + 1e-8)
         return self.relu(self.linear(x_norm))
-    
+
     def goodness(self, x: torch.Tensor) -> torch.Tensor:
         return (x ** 2).sum(dim=1)
-    
+
     def ff_loss(self, pos_goodness: torch.Tensor, neg_goodness: torch.Tensor) -> torch.Tensor:
         loss_pos = torch.log(1 + torch.exp(self.threshold - pos_goodness)).mean()
         loss_neg = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
         return loss_pos + loss_neg
+
+
+# Import SCFFLayer for SCFF-specific testing
+from .self_contrastive import SCFFLayer
 
 
 def test_strategy_integration(strategy: NegativeStrategy, name: str, device='cpu', num_steps=10):
@@ -134,46 +152,63 @@ def test_strategy_integration(strategy: NegativeStrategy, name: str, device='cpu
     print(f"\n{'='*60}")
     print(f"Integration Test: {name}")
     print(f"{'='*60}")
-    
-    # Create simple FF model
-    layer = SimpleFFLayer(784, 500).to(device)
+
+    # Check if this is SCFF strategy (uses concatenation)
+    requires_concat = getattr(strategy, 'requires_concat_layer', False)
+
+    # Create appropriate layer based on strategy type
+    if requires_concat:
+        # SCFF uses concatenated input, so use SCFFLayer
+        layer = SCFFLayer(784, 500, concat=True).to(device)
+        print(f"  Using SCFFLayer (concat mode) for SCFF strategy")
+    else:
+        layer = SimpleFFLayer(784, 500).to(device)
+
     optimizer = optim.Adam(layer.parameters(), lr=0.01)
-    
+
     # Create data
     images, labels = create_dummy_data(batch_size=32, device=device)
-    
+
     try:
         losses = []
         for step in range(num_steps):
             optimizer.zero_grad()
-            
+
             # Get positive and negative samples
             pos_data = strategy.create_positive(images, labels)
             neg_data = strategy.generate(images, labels)
-            
+
             # Forward pass
             pos_out = layer(pos_data)
             neg_out = layer(neg_data)
-            
-            # Compute loss
-            pos_goodness = layer.goodness(pos_out)
-            neg_goodness = layer.goodness(neg_out)
-            loss = layer.ff_loss(pos_goodness, neg_goodness)
-            
+
+            # Compute loss - use layer.goodness() for SCFFLayer
+            if requires_concat:
+                pos_goodness = layer.goodness(pos_out)
+                neg_goodness = layer.goodness(neg_out)
+                # SCFF loss function (matching official implementation)
+                loss_pos = torch.log(1 + torch.exp(2.0 - pos_goodness)).mean()
+                loss_neg = torch.log(1 + torch.exp(neg_goodness - 2.0)).mean()
+                loss = loss_pos + loss_neg
+            else:
+                pos_goodness = layer.goodness(pos_out)
+                neg_goodness = layer.goodness(neg_out)
+                loss = layer.ff_loss(pos_goodness, neg_goodness)
+
             # Check for valid loss
             if torch.isnan(loss) or torch.isinf(loss):
                 print(f"  ✗ NaN/Inf loss at step {step}")
                 return False
-            
+
             loss.backward()
             optimizer.step()
             losses.append(loss.item())
-        
+
         print(f"  ✓ Training completed {num_steps} steps")
         print(f"  ✓ Loss: {losses[0]:.4f} -> {losses[-1]:.4f}")
         print(f"  ★ Integration test passed!")
         return True
-        
+
     except Exception as e:
         print(f"  ✗ Integration test failed: {e}")
         import traceback
@@ -190,41 +225,57 @@ def test_mnist_training(strategy: NegativeStrategy, name: str, device='cpu', num
     print(f"\n{'='*60}")
     print(f"MNIST Training Test: {name}")
     print(f"{'='*60}")
-    
+
+    # Check if this is SCFF strategy (uses concatenation)
+    requires_concat = getattr(strategy, 'requires_concat_layer', False)
+
     # Load MNIST
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
     ])
-    
+
     try:
         dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
         loader = DataLoader(dataset, batch_size=64, shuffle=True)
     except Exception as e:
         print(f"  ○ Skipping MNIST test (data not available): {e}")
         return True  # Not a failure, just skip
-    
-    # Create model
-    layer = SimpleFFLayer(784, 500).to(device)
+
+    # Create appropriate model based on strategy type
+    if requires_concat:
+        layer = SCFFLayer(784, 500, concat=True).to(device)
+        print(f"  Using SCFFLayer (concat mode) for SCFF strategy")
+    else:
+        layer = SimpleFFLayer(784, 500).to(device)
+
     optimizer = optim.Adam(layer.parameters(), lr=0.01)
-    
+
     try:
         total_loss = 0
         for i, (images, labels) in enumerate(loader):
             if i >= num_batches:
                 break
-            
+
             images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
-            
+
             pos_data = strategy.create_positive(images, labels)
             neg_data = strategy.generate(images, labels)
-            
+
             pos_out = layer(pos_data)
             neg_out = layer(neg_data)
-            
-            loss = layer.ff_loss(layer.goodness(pos_out), layer.goodness(neg_out))
-            
+
+            # Compute loss based on layer type
+            if requires_concat:
+                pos_goodness = layer.goodness(pos_out)
+                neg_goodness = layer.goodness(neg_out)
+                loss_pos = torch.log(1 + torch.exp(2.0 - pos_goodness)).mean()
+                loss_neg = torch.log(1 + torch.exp(neg_goodness - 2.0)).mean()
+                loss = loss_pos + loss_neg
+            else:
+                loss = layer.ff_loss(layer.goodness(pos_out), layer.goodness(neg_out))
+
             if torch.isnan(loss) or torch.isinf(loss):
                 print(f"  ✗ Invalid loss at batch {i}")
                 return False
@@ -269,7 +320,7 @@ def run_all_tests():
         ('class_confusion', {'num_classes': 10, 'confusion_mode': 'random'}),
         ('self_contrastive', {'num_classes': 10}),
         ('masking', {'num_classes': 10, 'mask_ratio': 0.3}),
-        ('layer_wise', {'num_classes': 10, 'layer_dims': [784, 500]}),
+        ('layer_wise', {'num_classes': 10, 'num_layers': 4}),
         ('adversarial', {'num_classes': 10, 'epsilon': 0.1}),
         ('hard_mining', {'num_classes': 10, 'mining_mode': 'class'}),
         ('mono_forward', {'num_classes': 10, 'target_goodness': 2.0}),

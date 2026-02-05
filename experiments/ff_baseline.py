@@ -2,318 +2,364 @@
 Forward-Forward Algorithm Baseline Implementation
 For RQ1 (Transfer Learning) and RQ2 (Negative Sample Comparison)
 
-Based on: https://github.com/mpezeshki/pytorch_forward_forward
+FIXED VERSION - Based on correct Hinton/mpezeshki implementation
+
+Key fixes (vs original broken implementation):
+1. Goodness = MEAN of squared activations (not sum!)
+2. Layer-by-layer greedy training (train each layer to convergence)
+3. Label embedding uses x.max() (not 1.0)
+4. Full-batch training (large batch sizes)
+
+Reference: https://github.com/mpezeshki/pytorch_forward_forward
 """
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torchvision import datasets, transforms
+from torch.optim import Adam
+from torchvision import datasets
+from torchvision.transforms import Compose, ToTensor, Normalize, Lambda
 from torch.utils.data import DataLoader
-import numpy as np
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 import time
 
+
+def get_device():
+    """Get available device."""
+    if torch.cuda.is_available():
+        return torch.device('cuda')
+    elif torch.backends.mps.is_available():
+        return torch.device('mps')
+    return torch.device('cpu')
+
+
 # ============================================================
-# FF Layer Implementation
+# Correct Label Embedding (Hinton's method)
+# ============================================================
+
+def overlay_y_on_x(x: torch.Tensor, y) -> torch.Tensor:
+    """
+    Replace the first 10 pixels of data [x] with one-hot-encoded label [y].
+    
+    CRITICAL: Use x.max() as the label value, not 1.0!
+    This ensures the label signal is comparable in magnitude to the image data.
+    
+    Args:
+        x: Flattened image tensor [batch_size, 784]
+        y: Labels - can be int (for prediction) or tensor (for training)
+    """
+    x_ = x.clone()
+    x_[:, :10] *= 0.0  # Zero out first 10 pixels
+    x_[range(x.shape[0]), y] = x.max()  # Use x.max() not 1.0!
+    return x_
+
+
+# ============================================================
+# FF Layer Implementation (Correct)
 # ============================================================
 
 class FFLayer(nn.Module):
-    """A single Forward-Forward layer with local learning."""
+    """
+    Forward-Forward Layer - Correct Implementation.
     
-    def __init__(self, in_features: int, out_features: int, threshold: float = 2.0):
+    Key points:
+    - Goodness = MEAN of squared activations (NOT sum!)
+    - Threshold default = 2.0
+    - Layer normalization before linear transformation
+    """
+    
+    def __init__(self, in_features: int, out_features: int, 
+                 threshold: float = 2.0, lr: float = 0.03):
         super().__init__()
         self.linear = nn.Linear(in_features, out_features)
         self.relu = nn.ReLU()
         self.threshold = threshold
-        self.optimizer = None  # Set later
+        self.opt = Adam(self.parameters(), lr=lr)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x_normalized = x / (x.norm(2, dim=1, keepdim=True) + 1e-8)
-        return self.relu(self.linear(x_normalized))
+        """Forward pass with L2 normalization."""
+        x_direction = x / (x.norm(2, dim=1, keepdim=True) + 1e-4)
+        return self.relu(self.linear(x_direction))
     
-    def goodness(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute goodness (sum of squared activations)."""
-        return (x ** 2).sum(dim=1)
+    def goodness(self, h: torch.Tensor) -> torch.Tensor:
+        """
+        Compute goodness - MEAN of squared activations.
+        
+        CRITICAL: This must be MEAN, not SUM!
+        Using sum makes the threshold scale with layer width.
+        """
+        return h.pow(2).mean(dim=1)
     
-    def ff_loss(self, pos_goodness: torch.Tensor, neg_goodness: torch.Tensor) -> torch.Tensor:
-        """FF loss: push positive goodness above threshold, negative below."""
-        loss_pos = torch.log(1 + torch.exp(self.threshold - pos_goodness)).mean()
-        loss_neg = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
-        return loss_pos + loss_neg
+    def train_layer(self, x_pos: torch.Tensor, x_neg: torch.Tensor, 
+                    num_epochs: int = 1000, verbose: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Train this layer to convergence (greedy layer-wise training).
+        
+        This is THE KEY difference from incorrect implementations:
+        - Train each layer for many epochs before moving to next
+        - This allows proper greedy layer-wise optimization
+        """
+        for i in range(num_epochs):
+            # Forward pass
+            h_pos = self.forward(x_pos)
+            h_neg = self.forward(x_neg)
+            
+            # Compute goodness (MEAN not sum!)
+            g_pos = self.goodness(h_pos)
+            g_neg = self.goodness(h_neg)
+            
+            # Loss: push positive above threshold, negative below
+            loss = torch.log(1 + torch.exp(torch.cat([
+                -g_pos + self.threshold,
+                g_neg - self.threshold
+            ]))).mean()
+            
+            # Backward (local to this layer only!)
+            self.opt.zero_grad()
+            loss.backward()
+            self.opt.step()
+            
+            if verbose and (i + 1) % 200 == 0:
+                print(f"    Epoch {i+1}: loss={loss.item():.4f}, "
+                      f"g_pos={g_pos.mean().item():.3f}, "
+                      f"g_neg={g_neg.mean().item():.3f}")
+        
+        # Return detached outputs for next layer
+        return self.forward(x_pos).detach(), self.forward(x_neg).detach()
 
+
+# ============================================================
+# FF Network Implementation (Correct)
+# ============================================================
 
 class FFNetwork(nn.Module):
-    """Multi-layer Forward-Forward Network."""
+    """
+    Forward-Forward Network - Correct Implementation.
     
-    def __init__(self, layer_sizes: List[int], threshold: float = 2.0):
+    Key difference from incorrect implementations:
+    - Uses greedy layer-by-layer training
+    - NOT simultaneous mini-batch training of all layers
+    """
+    
+    def __init__(self, dims: List[int], threshold: float = 2.0, lr: float = 0.03):
         super().__init__()
         self.layers = nn.ModuleList()
-        for i in range(len(layer_sizes) - 1):
-            self.layers.append(FFLayer(layer_sizes[i], layer_sizes[i+1], threshold))
+        for d in range(len(dims) - 1):
+            self.layers.append(FFLayer(dims[d], dims[d + 1], threshold, lr))
     
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
-        """Return activations from all layers."""
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through all layers."""
+        for layer in self.layers:
+            x = layer(x)
+        return x
+    
+    def get_activations(self, x: torch.Tensor) -> List[torch.Tensor]:
+        """Get activations from all layers."""
         activations = []
         for layer in self.layers:
             x = layer(x)
             activations.append(x)
         return activations
     
-    def train_step(self, pos_data: torch.Tensor, neg_data: torch.Tensor) -> Dict[str, float]:
-        """Train all layers with FF algorithm."""
-        losses = {}
-        pos_input = pos_data
-        neg_input = neg_data
+    def train_greedy(self, x_pos: torch.Tensor, x_neg: torch.Tensor,
+                     epochs_per_layer: int = 1000, verbose: bool = True):
+        """
+        Greedy layer-by-layer training (CORRECT method).
+        
+        1. Train layer 0 for N epochs
+        2. Freeze layer 0, train layer 1 for N epochs  
+        3. And so on...
+        """
+        h_pos, h_neg = x_pos, x_neg
         
         for i, layer in enumerate(self.layers):
-            # Forward pass
-            pos_output = layer(pos_input)
-            neg_output = layer(neg_input)
-            
-            # Compute goodness
-            pos_goodness = layer.goodness(pos_output)
-            neg_goodness = layer.goodness(neg_output)
-            
-            # Compute and backprop loss (local!)
-            loss = layer.ff_loss(pos_goodness, neg_goodness)
-            
-            layer.optimizer.zero_grad()
-            loss.backward()
-            layer.optimizer.step()
-            
-            losses[f'layer_{i}'] = loss.item()
-            
-            # Detach for next layer (no gradient flow between layers!)
-            pos_input = pos_output.detach()
-            neg_input = neg_output.detach()
+            if verbose:
+                print(f'\n  Training layer {i}...')
+            h_pos, h_neg = layer.train_layer(h_pos, h_neg, epochs_per_layer, verbose)
+    
+    def predict(self, x: torch.Tensor, num_classes: int = 10) -> torch.Tensor:
+        """
+        Predict by trying all labels and picking highest total goodness.
         
-        return losses
+        For each candidate label:
+        1. Embed the label in the image
+        2. Forward through all layers
+        3. Sum goodness across all layers
+        4. Pick label with highest total goodness
+        """
+        batch_size = x.shape[0]
+        goodness_per_label = []
+        
+        for label in range(num_classes):
+            # Create input with this candidate label
+            h = overlay_y_on_x(x, label)
+            
+            # Compute goodness at each layer
+            goodness = []
+            for layer in self.layers:
+                h = layer(h)
+                goodness.append(layer.goodness(h))
+            
+            # Sum goodness across layers
+            total_goodness = sum(goodness)
+            goodness_per_label.append(total_goodness.unsqueeze(1))
+        
+        # Return label with highest goodness
+        goodness_per_label = torch.cat(goodness_per_label, dim=1)
+        return goodness_per_label.argmax(dim=1)
+    
+    def get_accuracy(self, x: torch.Tensor, y: torch.Tensor, 
+                     num_classes: int = 10) -> float:
+        """Compute accuracy."""
+        predictions = self.predict(x, num_classes)
+        return (predictions == y).float().mean().item()
 
 
 # ============================================================
-# Negative Sample Strategies
+# Data Loading
 # ============================================================
 
-class NegativeSampleStrategy:
-    """Base class for negative sample generation."""
+def get_mnist_loaders(train_batch_size: int = 50000, test_batch_size: int = 10000):
+    """
+    Get MNIST data loaders.
     
-    def generate(self, images: torch.Tensor, labels: torch.Tensor, num_classes: int) -> torch.Tensor:
-        raise NotImplementedError
-
-
-class LabelEmbeddingNegative(NegativeSampleStrategy):
-    """Original Hinton method: embed wrong label in first pixels."""
+    IMPORTANT: Use large batch sizes for FF training!
+    The original implementation uses full training set (50000).
+    """
+    transform = Compose([
+        ToTensor(),
+        Normalize((0.1307,), (0.3081,)),
+        Lambda(lambda x: torch.flatten(x))
+    ])
     
-    def __init__(self, num_classes: int = 10):
-        self.num_classes = num_classes
+    train_loader = DataLoader(
+        datasets.MNIST('./data/', train=True, download=True, transform=transform),
+        batch_size=train_batch_size, shuffle=True
+    )
     
-    def create_positive(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """Create positive samples with correct label embedded."""
-        batch_size = images.size(0)
-        # Flatten images
-        flat = images.view(batch_size, -1)
-        # Create one-hot labels
-        one_hot = torch.zeros(batch_size, self.num_classes, device=images.device)
-        one_hot.scatter_(1, labels.unsqueeze(1), 1.0)
-        # Embed label in first pixels
-        result = flat.clone()
-        result[:, :self.num_classes] = one_hot
-        return result
+    test_loader = DataLoader(
+        datasets.MNIST('./data/', train=False, download=True, transform=transform),
+        batch_size=test_batch_size, shuffle=False
+    )
     
-    def generate(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """Create negative samples with wrong label embedded."""
-        batch_size = images.size(0)
-        # Flatten images
-        flat = images.view(batch_size, -1)
-        # Generate random wrong labels
-        wrong_labels = torch.randint(0, self.num_classes, (batch_size,), device=images.device)
-        # Make sure they're actually wrong
-        mask = wrong_labels == labels
-        wrong_labels[mask] = (wrong_labels[mask] + 1) % self.num_classes
-        # Create one-hot
-        one_hot = torch.zeros(batch_size, self.num_classes, device=images.device)
-        one_hot.scatter_(1, wrong_labels.unsqueeze(1), 1.0)
-        # Embed wrong label
-        result = flat.clone()
-        result[:, :self.num_classes] = one_hot
-        return result
-
-
-class HybridImageNegative(NegativeSampleStrategy):
-    """Hinton's unsupervised method: mix two different images."""
-    
-    def generate(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        batch_size = images.size(0)
-        flat = images.view(batch_size, -1)
-        
-        # Shuffle to get different images
-        perm = torch.randperm(batch_size, device=images.device)
-        other_images = flat[perm]
-        
-        # Create random mask
-        mask = (torch.rand(flat.shape, device=images.device) > 0.5).float()
-        
-        # Mix images
-        negative = flat * mask + other_images * (1 - mask)
-        return negative
-
-
-class SCFFNegative(NegativeSampleStrategy):
-    """Self-Contrastive FF: concatenate different images."""
-    
-    def generate(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        batch_size = images.size(0)
-        flat = images.view(batch_size, -1)
-        
-        # Shuffle to get different images
-        perm = torch.randperm(batch_size, device=images.device)
-        other_images = flat[perm]
-        
-        # For negative: combine different images (sum instead of concat for same dimension)
-        negative = (flat + other_images) / 2
-        return negative
-    
-    def create_positive(self, images: torch.Tensor) -> torch.Tensor:
-        """Positive: same image combined with itself."""
-        flat = images.view(images.size(0), -1)
-        return flat  # Or (flat + flat) / 2 for consistency
+    return train_loader, test_loader
 
 
 # ============================================================
-# Training and Evaluation
+# Training Functions
 # ============================================================
 
-def train_ff_epoch(model: FFNetwork, 
-                   train_loader: DataLoader, 
-                   neg_strategy: NegativeSampleStrategy,
-                   device: torch.device) -> Dict[str, float]:
-    """Train FF network for one epoch."""
-    model.train()
-    total_losses = {f'layer_{i}': 0.0 for i in range(len(model.layers))}
-    num_batches = 0
+def train_ff(model: FFNetwork, 
+             train_loader: DataLoader,
+             device: torch.device,
+             epochs_per_layer: int = 1000,
+             verbose: bool = True) -> Dict[str, float]:
+    """
+    Train FF network correctly using greedy layer-by-layer approach.
     
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
-        
-        # Generate positive and negative samples
-        if isinstance(neg_strategy, LabelEmbeddingNegative):
-            pos_data = neg_strategy.create_positive(images, labels)
-        else:
-            pos_data = images.view(images.size(0), -1)
-        
-        neg_data = neg_strategy.generate(images, labels)
-        
-        # Train step
-        losses = model.train_step(pos_data, neg_data)
-        
-        for key in losses:
-            total_losses[key] += losses[key]
-        num_batches += 1
+    This is the CORRECT way to train FF:
+    1. Load entire training set (or large batch)
+    2. Create positive samples (correct label embedded)
+    3. Create negative samples (shuffled/wrong label embedded)
+    4. Train each layer to convergence before moving to next
+    """
+    # Load all data
+    x, y = next(iter(train_loader))
+    x, y = x.to(device), y.to(device)
     
-    return {k: v / num_batches for k, v in total_losses.items()}
+    # Create positive samples (correct label)
+    x_pos = overlay_y_on_x(x, y)
+    
+    # Create negative samples (shuffled labels - Hinton's method)
+    # IMPORTANT: Shuffle labels across batch, don't generate random wrong labels
+    rnd = torch.randperm(x.size(0))
+    x_neg = overlay_y_on_x(x, y[rnd])
+    
+    # Train layer-by-layer
+    start_time = time.time()
+    model.train_greedy(x_pos, x_neg, epochs_per_layer, verbose)
+    train_time = time.time() - start_time
+    
+    # Compute final metrics
+    train_acc = model.get_accuracy(x, y)
+    
+    return {
+        'train_acc': train_acc,
+        'train_error': 1.0 - train_acc,
+        'train_time': train_time
+    }
 
 
 def evaluate_ff(model: FFNetwork, 
-                test_loader: DataLoader, 
-                neg_strategy: NegativeSampleStrategy,
-                device: torch.device,
-                num_classes: int = 10) -> float:
-    """Evaluate FF network accuracy."""
+                test_loader: DataLoader,
+                device: torch.device) -> Dict[str, float]:
+    """Evaluate FF network on test set."""
     model.eval()
-    correct = 0
-    total = 0
     
-    with torch.no_grad():
-        for images, labels in test_loader:
-            images, labels = images.to(device), labels.to(device)
-            batch_size = images.size(0)
-            
-            # For each sample, try all labels and pick the one with highest goodness
-            best_goodness = torch.zeros(batch_size, device=device) - float('inf')
-            predictions = torch.zeros(batch_size, dtype=torch.long, device=device)
-            
-            for candidate_label in range(num_classes):
-                # Create positive sample with this candidate label
-                candidate_labels = torch.full((batch_size,), candidate_label, device=device)
-                if isinstance(neg_strategy, LabelEmbeddingNegative):
-                    pos_data = neg_strategy.create_positive(images, candidate_labels)
-                else:
-                    pos_data = images.view(batch_size, -1)
-                
-                # Get final layer activations
-                activations = model(pos_data)
-                goodness = model.layers[-1].goodness(activations[-1])
-                
-                # Update best predictions
-                better = goodness > best_goodness
-                predictions[better] = candidate_label
-                best_goodness[better] = goodness[better]
-            
-            correct += (predictions == labels).sum().item()
-            total += batch_size
+    x_te, y_te = next(iter(test_loader))
+    x_te, y_te = x_te.to(device), y_te.to(device)
     
-    return correct / total
+    test_acc = model.get_accuracy(x_te, y_te)
+    
+    return {
+        'test_acc': test_acc,
+        'test_error': 1.0 - test_acc
+    }
 
 
 # ============================================================
 # Main Experiment
 # ============================================================
 
-def main():
-    # Config
-    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
-    print(f"Using device: {device}")
+def main(epochs_per_layer: int = 1000, seed: int = 1234):
+    """Run the correct FF implementation on MNIST."""
+    # Setup
+    torch.manual_seed(seed)
+    device = get_device()
+    print(f"Device: {device}")
     
     # Data
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
-    ])
-    
-    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
-    test_dataset = datasets.MNIST('./data', train=False, transform=transform)
-    
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    train_loader, test_loader = get_mnist_loaders()
     
     # Model
-    input_size = 28 * 28  # MNIST
-    layer_sizes = [input_size, 500, 500]
-    model = FFNetwork(layer_sizes, threshold=2.0).to(device)
+    model = FFNetwork([784, 500, 500], threshold=2.0, lr=0.03).to(device)
     
-    # Setup optimizers for each layer
-    for layer in model.layers:
-        layer.optimizer = optim.Adam(layer.parameters(), lr=0.03)
+    print("\n" + "="*60)
+    print("Training Forward-Forward Network (Correct Implementation)")
+    print("="*60)
+    print(f"Architecture: [784, 500, 500]")
+    print(f"Epochs per layer: {epochs_per_layer}")
+    print(f"Threshold: 2.0")
+    print(f"Learning rate: 0.03")
     
-    # Negative sample strategy
-    neg_strategy = LabelEmbeddingNegative(num_classes=10)
+    # Train
+    train_results = train_ff(model, train_loader, device, epochs_per_layer)
     
-    # Training
-    num_epochs = 10
-    print("\n" + "="*50)
-    print("Training Forward-Forward Network on MNIST")
-    print("="*50)
+    # Evaluate
+    test_results = evaluate_ff(model, test_loader, device)
     
-    for epoch in range(num_epochs):
-        start_time = time.time()
-        losses = train_ff_epoch(model, train_loader, neg_strategy, device)
-        epoch_time = time.time() - start_time
-        
-        # Evaluate
-        accuracy = evaluate_ff(model, test_loader, neg_strategy, device)
-        
-        print(f"Epoch {epoch+1}/{num_epochs} | "
-              f"Loss: {sum(losses.values()):.4f} | "
-              f"Accuracy: {accuracy*100:.2f}% | "
-              f"Time: {epoch_time:.1f}s")
+    # Print results
+    print("\n" + "="*60)
+    print("RESULTS")
+    print("="*60)
+    print(f"Train accuracy: {train_results['train_acc']*100:.2f}%")
+    print(f"Train error:    {train_results['train_error']*100:.2f}%")
+    print(f"Test accuracy:  {test_results['test_acc']*100:.2f}%")
+    print(f"Test error:     {test_results['test_error']*100:.2f}%")
+    print(f"Training time:  {train_results['train_time']:.1f}s")
     
-    print("\n" + "="*50)
-    print(f"Final Test Accuracy: {accuracy*100:.2f}%")
-    print("="*50)
+    print("\n" + "-"*60)
+    print("Reference (Hinton paper): ~1.4% test error (~98.6% accuracy)")
+    print("Reference (mpezeshki repo): ~1.36% test error")
+    print("-"*60)
     
-    return model, accuracy
+    return model, train_results, test_results
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', type=int, default=1000, help='Epochs per layer')
+    parser.add_argument('--seed', type=int, default=1234, help='Random seed')
+    args = parser.parse_args()
+    
+    model, train_res, test_res = main(epochs_per_layer=args.epochs, seed=args.seed)

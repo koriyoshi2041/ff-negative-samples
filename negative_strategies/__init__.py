@@ -19,13 +19,13 @@ Strategies:
 
 Usage:
     from negative_strategies import StrategyRegistry, LabelEmbeddingStrategy
-    
+
     # Create by name
     strategy = StrategyRegistry.create('label_embedding', num_classes=10)
-    
+
     # Or directly
     strategy = LabelEmbeddingStrategy(num_classes=10)
-    
+
     # Generate negatives
     neg_samples = strategy.generate(images, labels)
 """
@@ -37,19 +37,29 @@ from .label_embedding import LabelEmbeddingStrategy
 from .image_mixing import ImageMixingStrategy, ClassAwareMixingStrategy
 from .random_noise import RandomNoiseStrategy
 from .class_confusion import ClassConfusionStrategy, ClassConfusionEmbeddedStrategy
-from .self_contrastive import SelfContrastiveStrategy
+from .self_contrastive import SelfContrastiveStrategy, SCFFLayer
 from .masking import MaskingStrategy
-from .layer_wise import LayerWiseStrategy
+from .layer_wise import (
+    LayerWiseStrategy,
+    LayerConfig,
+    PerturbationType,
+    get_default_layer_configs,
+)
 from .adversarial import AdversarialStrategy, FastAdversarialStrategy
 from .hard_mining import HardMiningStrategy
-from .mono_forward import MonoForwardStrategy, EnergyMinimizationStrategy
+from .mono_forward import (
+    MonoForwardStrategy,
+    VarianceOnlyStrategy,
+    DecorrelationOnlyStrategy,
+    EnergyMinimizationStrategy
+)
 
 # Convenience exports
 __all__ = [
     # Base
     'NegativeStrategy',
     'StrategyRegistry',
-    
+
     # Strategies
     'LabelEmbeddingStrategy',
     'ImageMixingStrategy',
@@ -58,12 +68,18 @@ __all__ = [
     'ClassConfusionStrategy',
     'ClassConfusionEmbeddedStrategy',
     'SelfContrastiveStrategy',
+    'SCFFLayer',
     'MaskingStrategy',
     'LayerWiseStrategy',
+    'LayerConfig',
+    'PerturbationType',
+    'get_default_layer_configs',
     'AdversarialStrategy',
     'FastAdversarialStrategy',
     'HardMiningStrategy',
     'MonoForwardStrategy',
+    'VarianceOnlyStrategy',
+    'DecorrelationOnlyStrategy',
     'EnergyMinimizationStrategy',
 ]
 
@@ -111,8 +127,8 @@ STRATEGY_INFO = {
     },
     'layer_wise': {
         'class': LayerWiseStrategy,
-        'requires_labels': False,
-        'description': 'Layer-specific adaptive generation',
+        'requires_labels': True,
+        'description': 'Layer-adaptive negative generation with depth-based perturbations',
     },
     'adversarial': {
         'class': AdversarialStrategy,
@@ -132,7 +148,17 @@ STRATEGY_INFO = {
     'mono_forward': {
         'class': MonoForwardStrategy,
         'requires_labels': True,
-        'description': 'No negatives - alternative loss',
+        'description': 'No negatives - VICReg/contrastive/variance/decorrelation loss',
+    },
+    'variance_only': {
+        'class': VarianceOnlyStrategy,
+        'requires_labels': True,
+        'description': 'No negatives - variance maximization only',
+    },
+    'decorrelation_only': {
+        'class': DecorrelationOnlyStrategy,
+        'requires_labels': True,
+        'description': 'No negatives - Barlow Twins-style decorrelation',
     },
     'energy_minimization': {
         'class': EnergyMinimizationStrategy,
@@ -155,11 +181,11 @@ def list_strategies():
 def create_strategy(name: str, **kwargs) -> NegativeStrategy:
     """
     Create a strategy by name.
-    
+
     Args:
         name: Strategy name (see list_strategies())
         **kwargs: Strategy-specific arguments
-        
+
     Returns:
         Initialized strategy instance
     """

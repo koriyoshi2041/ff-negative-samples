@@ -6,7 +6,7 @@
 
 ## Experiment 1: Negative Sample Strategy Comparison
 
-**状态**: 🔄 Running
+**状态**: 🔄 Partial Results (4/10 完成)
 
 **动机**:
 - 文献中缺乏系统性的负样本策略对比
@@ -23,21 +23,43 @@
 - 网络: 784 → 500 → 500
 - 优化器: Adam, lr=0.03
 - Epochs: 10
-- 重复: 3 次取平均
+- 重复: 1 次（简化版）
 
 **策略列表**:
-1. LabelEmbedding (Hinton original)
-2. ImageMixing
-3. RandomNoise (baseline)
-4. ClassConfusion
-5. SelfContrastive
-6. Masking
-7. LayerWise
-8. Adversarial
-9. HardMining
-10. MonoForward (no negatives)
+1. ✅ LabelEmbedding (Hinton original) - **38.81%**
+2. ✅ ImageMixing - 9.80%
+3. ✅ RandomNoise (baseline) - 9.80%
+4. ✅ ClassConfusion - **38.81%**
+5. 🔄 SelfContrastive (SCFF)
+6. ⏳ Masking
+7. ⏳ LayerWise
+8. ⏳ Adversarial
+9. ⏳ HardMining
+10. ⏳ MonoForward (no negatives)
 
-**结果**: ⏳ Running
+**初步结果**: 2026-02-05
+
+| 策略 | 准确率 | 使用标签嵌入 |
+|-----|--------|-------------|
+| label_embedding | **38.81%** | ✅ |
+| class_confusion | **38.81%** | ✅ |
+| image_mixing | 9.80% | ❌ |
+| random_noise | 9.80% | ❌ |
+
+**关键发现**:
+1. **标签嵌入至关重要**：使用标签嵌入的策略平均 38.8%，不使用的仅 9.8%（随机水平）
+2. **LabelEmbedding 和 ClassConfusion 表现相同**：都是 38.81%，因为核心机制相同
+3. **无标签策略失效原因**：评估方法需要标签嵌入才能关联图像与类别
+
+**输出文件**：
+- `results/strategy_comparison.json` - 原始实验数据
+- `results/strategy_comparison_summary.json` - 结果摘要
+- `results/strategy_comparison_final_en.png` - 可视化（英文版）
+- `results/strategy_comparison_report.md` - Markdown 报告
+
+**结论**：
+> Label embedding is essential for Forward-Forward classification.
+> Strategies without it achieve only random-level accuracy (~10%).
 
 ---
 

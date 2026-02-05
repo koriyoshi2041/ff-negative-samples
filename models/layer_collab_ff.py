@@ -4,19 +4,47 @@ Layer Collaboration Forward-Forward Implementation
 Based on: Lorberbom et al. (2024) "Layer Collaboration in the Forward-Forward Algorithm"
 Paper: https://arxiv.org/abs/2305.12393
 
+FIXED VERSION - Incorporates correct base FF implementation:
+1. Goodness = MEAN of squared activations (not sum!)
+2. Layer-by-layer training with collaboration
+3. Label embedding uses x.max() (not 1.0)
+4. Full-batch training
+
 Key modifications from original FF:
 1. Add γ (global goodness from other layers) to probability calculation
 2. γ is detached from gradient computation
-3. Train by alternating across all layers (not layer-by-layer to convergence)
+3. Can train by alternating across layers or layer-by-layer
 """
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torchvision import datasets, transforms
+from torch.optim import Adam
+from torchvision import datasets
+from torchvision.transforms import Compose, ToTensor, Normalize, Lambda
 from torch.utils.data import DataLoader
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict
 import time
+
+
+def get_device():
+    """Get available device."""
+    if torch.cuda.is_available():
+        return torch.device('cuda')
+    elif torch.backends.mps.is_available():
+        return torch.device('mps')
+    return torch.device('cpu')
+
+
+def overlay_y_on_x(x: torch.Tensor, y) -> torch.Tensor:
+    """
+    Replace the first 10 pixels of data [x] with one-hot-encoded label [y].
+    
+    CRITICAL: Use x.max() as the label value, not 1.0!
+    """
+    x_ = x.clone()
+    x_[:, :10] *= 0.0
+    x_[range(x.shape[0]), y] = x.max()
+    return x_
 
 
 # ============================================================
@@ -24,52 +52,58 @@ import time
 # ============================================================
 
 class CollabFFLayer(nn.Module):
-    """A Forward-Forward layer with layer collaboration support."""
+    """
+    Forward-Forward layer with layer collaboration support.
     
-    def __init__(self, in_features: int, out_features: int, threshold: float = 2.0):
+    FIXED: Uses MEAN for goodness calculation.
+    """
+    
+    def __init__(self, in_features: int, out_features: int, 
+                 threshold: float = 2.0, lr: float = 0.03):
         super().__init__()
         self.linear = nn.Linear(in_features, out_features)
         self.relu = nn.ReLU()
         self.threshold = threshold
-        self.optimizer = None  # Set externally
+        self.opt = Adam(self.parameters(), lr=lr)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass with layer normalization."""
-        x_normalized = x / (x.norm(2, dim=1, keepdim=True) + 1e-8)
-        return self.relu(self.linear(x_normalized))
+        x_direction = x / (x.norm(2, dim=1, keepdim=True) + 1e-4)
+        return self.relu(self.linear(x_direction))
     
     def goodness(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute goodness (sum of squared activations)."""
-        return (x ** 2).sum(dim=1)
-    
-    def ff_loss_with_gamma(self, 
-                           pos_goodness: torch.Tensor, 
-                           neg_goodness: torch.Tensor,
-                           gamma_pos: torch.Tensor,
-                           gamma_neg: torch.Tensor) -> torch.Tensor:
         """
-        Layer Collaboration FF loss.
+        Compute goodness - MEAN of squared activations.
+        CRITICAL: Must be MEAN, not SUM!
+        """
+        return x.pow(2).mean(dim=1)
+    
+    def ff_loss(self, pos_goodness: torch.Tensor, neg_goodness: torch.Tensor,
+                gamma_pos: torch.Tensor = None, gamma_neg: torch.Tensor = None) -> torch.Tensor:
+        """
+        FF loss with optional layer collaboration (gamma).
         
         Original FF:  p = sigmoid(goodness - θ)
         Collab FF:    p = sigmoid(goodness + γ - θ)
         
-        where γ = sum of goodness from other layers (detached, no gradient)
+        where γ = sum of goodness from other layers (detached)
         """
-        # Collaborative probability calculation
-        # p_pos = sigmoid(goodness_pos + gamma_pos - threshold)
-        # loss_pos = -log(p_pos) = -log(sigmoid(x)) = log(1 + exp(-x)) = softplus(-x)
-        # Since we want positive samples above threshold: minimize softplus(threshold - goodness - gamma)
-        
+        if gamma_pos is None:
+            gamma_pos = torch.zeros_like(pos_goodness)
+        if gamma_neg is None:
+            gamma_neg = torch.zeros_like(neg_goodness)
+            
+        # Collaborative logits
         pos_logit = pos_goodness + gamma_pos - self.threshold
         neg_logit = neg_goodness + gamma_neg - self.threshold
         
-        # Loss: push positive goodness up, negative down
-        # For positive: we want sigmoid(logit) → 1, so minimize -log(sigmoid(logit)) = log(1 + exp(-logit))
-        # For negative: we want sigmoid(logit) → 0, so minimize -log(1-sigmoid(logit)) = log(1 + exp(logit))
-        loss_pos = torch.log(1 + torch.exp(-pos_logit)).mean()
-        loss_neg = torch.log(1 + torch.exp(neg_logit)).mean()
+        # Loss: push positive above threshold, negative below
+        loss = torch.log(1 + torch.exp(torch.cat([
+            -pos_logit,
+            neg_logit
+        ]))).mean()
         
-        return loss_pos + loss_neg
+        return loss
 
 
 # ============================================================
@@ -80,19 +114,16 @@ class CollabFFNetwork(nn.Module):
     """
     Multi-layer Forward-Forward Network with Layer Collaboration.
     
-    Key difference from original FF:
-    - Each layer's loss includes γ = sum of other layers' goodness
-    - γ is detached (constant for gradient computation)
-    - Training alternates across layers instead of layer-by-layer convergence
+    FIXED: Uses correct goodness (MEAN) and proper training.
     """
     
-    def __init__(self, layer_sizes: List[int], threshold: float = 2.0):
+    def __init__(self, dims: List[int], threshold: float = 2.0, lr: float = 0.03):
         super().__init__()
         self.layers = nn.ModuleList()
         self.threshold = threshold
         
-        for i in range(len(layer_sizes) - 1):
-            self.layers.append(CollabFFLayer(layer_sizes[i], layer_sizes[i+1], threshold))
+        for d in range(len(dims) - 1):
+            self.layers.append(CollabFFLayer(dims[d], dims[d + 1], threshold, lr))
     
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         """Return activations from all layers."""
@@ -109,8 +140,8 @@ class CollabFFNetwork(nn.Module):
         for layer in self.layers:
             h = layer(h)
             g = layer.goodness(h)
-            goodness_list.append(g.detach())  # Detach for γ calculation
-            h = h.detach()  # Detach between layers
+            goodness_list.append(g.detach())
+            h = h.detach()
         return goodness_list
     
     def compute_gamma(self, goodness_list: List[torch.Tensor], current_layer: int, 
@@ -122,9 +153,6 @@ class CollabFFNetwork(nn.Module):
             goodness_list: List of goodness values from all layers (detached)
             current_layer: Index of current layer
             mode: 'all' (all other layers) or 'previous' (only previous layers)
-        
-        Returns:
-            γ: Sum of goodness from other layers
         """
         gamma = torch.zeros_like(goodness_list[0])
         
@@ -136,241 +164,137 @@ class CollabFFNetwork(nn.Module):
         
         return gamma
     
-    def train_step_collaborative(self, 
-                                  pos_data: torch.Tensor, 
-                                  neg_data: torch.Tensor,
-                                  gamma_mode: str = 'all') -> Dict[str, float]:
-        """
-        Train all layers with Layer Collaboration.
+    def train_layer_with_collab(self, layer_idx: int, 
+                                 x_pos: torch.Tensor, x_neg: torch.Tensor,
+                                 num_epochs: int = 1000,
+                                 gamma_mode: str = 'all',
+                                 verbose: bool = True):
+        """Train a single layer with layer collaboration."""
+        layer = self.layers[layer_idx]
         
-        Key differences from original FF:
-        1. First compute all goodness values (detached)
-        2. Then update each layer using γ from other layers
-        3. Alternate across layers (one update per layer per step)
-        """
-        losses = {}
-        
-        # Step 1: Compute all goodness values (detached) for both pos and neg
-        pos_goodness_list = self.compute_all_goodness(pos_data)
-        neg_goodness_list = self.compute_all_goodness(neg_data)
-        
-        # Step 2: Update each layer with collaborative loss
-        pos_input = pos_data
-        neg_input = neg_data
+        for epoch in range(num_epochs):
+            # Compute all goodness values (detached)
+            pos_goodness_all = self.compute_all_goodness(x_pos)
+            neg_goodness_all = self.compute_all_goodness(x_neg)
+            
+            # Compute gamma for this layer
+            gamma_pos = self.compute_gamma(pos_goodness_all, layer_idx, gamma_mode)
+            gamma_neg = self.compute_gamma(neg_goodness_all, layer_idx, gamma_mode)
+            
+            # Forward to this layer's input
+            h_pos = x_pos
+            h_neg = x_neg
+            for i in range(layer_idx):
+                h_pos = self.layers[i](h_pos).detach()
+                h_neg = self.layers[i](h_neg).detach()
+            
+            # Forward through current layer (with gradient)
+            out_pos = layer(h_pos)
+            out_neg = layer(h_neg)
+            
+            # Compute goodness and loss
+            g_pos = layer.goodness(out_pos)
+            g_neg = layer.goodness(out_neg)
+            loss = layer.ff_loss(g_pos, g_neg, gamma_pos, gamma_neg)
+            
+            # Backward
+            layer.opt.zero_grad()
+            loss.backward()
+            layer.opt.step()
+            
+            if verbose and (epoch + 1) % 200 == 0:
+                print(f"    Epoch {epoch+1}: loss={loss.item():.4f}, "
+                      f"g_pos={g_pos.mean().item():.3f}, "
+                      f"g_neg={g_neg.mean().item():.3f}")
+    
+    def train_greedy(self, x_pos: torch.Tensor, x_neg: torch.Tensor,
+                     epochs_per_layer: int = 1000, verbose: bool = True):
+        """Original FF greedy training (no collaboration)."""
+        h_pos, h_neg = x_pos, x_neg
         
         for i, layer in enumerate(self.layers):
-            # Compute γ for this layer
-            gamma_pos = self.compute_gamma(pos_goodness_list, i, gamma_mode)
-            gamma_neg = self.compute_gamma(neg_goodness_list, i, gamma_mode)
+            if verbose:
+                print(f'\n  Training layer {i} (Original FF)...')
             
-            # Forward pass (with gradient)
-            pos_output = layer(pos_input)
-            neg_output = layer(neg_input)
-            
-            # Compute goodness (with gradient)
-            pos_goodness = layer.goodness(pos_output)
-            neg_goodness = layer.goodness(neg_output)
-            
-            # Collaborative loss
-            loss = layer.ff_loss_with_gamma(pos_goodness, neg_goodness, gamma_pos, gamma_neg)
-            
-            # Backprop (local to this layer)
-            layer.optimizer.zero_grad()
-            loss.backward()
-            layer.optimizer.step()
-            
-            losses[f'layer_{i}'] = loss.item()
-            
-            # Detach for next layer
-            pos_input = pos_output.detach()
-            neg_input = neg_output.detach()
-        
-        return losses
-
-
-# ============================================================
-# Original FF Network (for comparison)
-# ============================================================
-
-class OriginalFFNetwork(nn.Module):
-    """Original Forward-Forward Network without layer collaboration."""
-    
-    def __init__(self, layer_sizes: List[int], threshold: float = 2.0):
-        super().__init__()
-        self.layers = nn.ModuleList()
-        self.threshold = threshold
-        
-        for i in range(len(layer_sizes) - 1):
-            layer = CollabFFLayer(layer_sizes[i], layer_sizes[i+1], threshold)
-            self.layers.append(layer)
-    
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
-        activations = []
-        for layer in self.layers:
-            x = layer(x)
-            activations.append(x)
-        return activations
-    
-    def train_step(self, pos_data: torch.Tensor, neg_data: torch.Tensor) -> Dict[str, float]:
-        """Original FF training without collaboration."""
-        losses = {}
-        pos_input = pos_data
-        neg_input = neg_data
-        
-        for i, layer in enumerate(self.layers):
-            pos_output = layer(pos_input)
-            neg_output = layer(neg_input)
-            
-            pos_goodness = layer.goodness(pos_output)
-            neg_goodness = layer.goodness(neg_output)
-            
-            # Original loss (no gamma)
-            loss_pos = torch.log(1 + torch.exp(self.threshold - pos_goodness)).mean()
-            loss_neg = torch.log(1 + torch.exp(neg_goodness - self.threshold)).mean()
-            loss = loss_pos + loss_neg
-            
-            layer.optimizer.zero_grad()
-            loss.backward()
-            layer.optimizer.step()
-            
-            losses[f'layer_{i}'] = loss.item()
-            
-            pos_input = pos_output.detach()
-            neg_input = neg_output.detach()
-        
-        return losses
-
-
-# ============================================================
-# Negative Sample Strategy
-# ============================================================
-
-class LabelEmbeddingNegative:
-    """Hinton's method: embed label in first pixels."""
-    
-    def __init__(self, num_classes: int = 10):
-        self.num_classes = num_classes
-    
-    def create_positive(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        batch_size = images.size(0)
-        flat = images.view(batch_size, -1)
-        one_hot = torch.zeros(batch_size, self.num_classes, device=images.device)
-        one_hot.scatter_(1, labels.unsqueeze(1), 1.0)
-        result = flat.clone()
-        result[:, :self.num_classes] = one_hot
-        return result
-    
-    def generate(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        batch_size = images.size(0)
-        flat = images.view(batch_size, -1)
-        wrong_labels = torch.randint(0, self.num_classes, (batch_size,), device=images.device)
-        mask = wrong_labels == labels
-        wrong_labels[mask] = (wrong_labels[mask] + 1) % self.num_classes
-        one_hot = torch.zeros(batch_size, self.num_classes, device=images.device)
-        one_hot.scatter_(1, wrong_labels.unsqueeze(1), 1.0)
-        result = flat.clone()
-        result[:, :self.num_classes] = one_hot
-        return result
-
-
-# ============================================================
-# Training Functions
-# ============================================================
-
-def train_epoch_collab(model: CollabFFNetwork,
-                       train_loader: DataLoader,
-                       neg_strategy: LabelEmbeddingNegative,
-                       device: torch.device,
-                       gamma_mode: str = 'all') -> Dict[str, float]:
-    """Train collaborative FF for one epoch."""
-    model.train()
-    total_losses = {f'layer_{i}': 0.0 for i in range(len(model.layers))}
-    num_batches = 0
-    
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
-        
-        pos_data = neg_strategy.create_positive(images, labels)
-        neg_data = neg_strategy.generate(images, labels)
-        
-        losses = model.train_step_collaborative(pos_data, neg_data, gamma_mode)
-        
-        for key in losses:
-            total_losses[key] += losses[key]
-        num_batches += 1
-    
-    return {k: v / num_batches for k, v in total_losses.items()}
-
-
-def train_epoch_original(model: OriginalFFNetwork,
-                         train_loader: DataLoader,
-                         neg_strategy: LabelEmbeddingNegative,
-                         device: torch.device) -> Dict[str, float]:
-    """Train original FF for one epoch."""
-    model.train()
-    total_losses = {f'layer_{i}': 0.0 for i in range(len(model.layers))}
-    num_batches = 0
-    
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
-        
-        pos_data = neg_strategy.create_positive(images, labels)
-        neg_data = neg_strategy.generate(images, labels)
-        
-        losses = model.train_step(pos_data, neg_data)
-        
-        for key in losses:
-            total_losses[key] += losses[key]
-        num_batches += 1
-    
-    return {k: v / num_batches for k, v in total_losses.items()}
-
-
-def evaluate(model: nn.Module,
-             test_loader: DataLoader,
-             neg_strategy: LabelEmbeddingNegative,
-             device: torch.device,
-             num_classes: int = 10) -> float:
-    """Evaluate FF network accuracy."""
-    model.eval()
-    correct = 0
-    total = 0
-    
-    with torch.no_grad():
-        for images, labels in test_loader:
-            images, labels = images.to(device), labels.to(device)
-            batch_size = images.size(0)
-            
-            best_goodness = torch.zeros(batch_size, device=device) - float('inf')
-            predictions = torch.zeros(batch_size, dtype=torch.long, device=device)
-            
-            for candidate_label in range(num_classes):
-                candidate_labels = torch.full((batch_size,), candidate_label, device=device)
-                pos_data = neg_strategy.create_positive(images, candidate_labels)
+            for epoch in range(epochs_per_layer):
+                out_pos = layer(h_pos)
+                out_neg = layer(h_neg)
                 
-                activations = model(pos_data)
-                # Sum goodness across all layers for prediction
-                total_goodness = sum(model.layers[i].goodness(activations[i]) 
-                                    for i in range(len(model.layers)))
+                g_pos = layer.goodness(out_pos)
+                g_neg = layer.goodness(out_neg)
                 
-                better = total_goodness > best_goodness
-                predictions[better] = candidate_label
-                best_goodness[better] = total_goodness[better]
+                loss = layer.ff_loss(g_pos, g_neg)
+                
+                layer.opt.zero_grad()
+                loss.backward()
+                layer.opt.step()
+                
+                if verbose and (epoch + 1) % 200 == 0:
+                    print(f"    Epoch {epoch+1}: loss={loss.item():.4f}, "
+                          f"g_pos={g_pos.mean().item():.3f}, "
+                          f"g_neg={g_neg.mean().item():.3f}")
             
-            correct += (predictions == labels).sum().item()
-            total += batch_size
+            h_pos = layer(h_pos).detach()
+            h_neg = layer(h_neg).detach()
     
-    return correct / total
+    def train_collaborative(self, x_pos: torch.Tensor, x_neg: torch.Tensor,
+                            epochs_per_layer: int = 1000,
+                            gamma_mode: str = 'all',
+                            verbose: bool = True):
+        """Layer Collaboration FF training."""
+        for i in range(len(self.layers)):
+            if verbose:
+                print(f'\n  Training layer {i} (Collaborative, γ={gamma_mode})...')
+            self.train_layer_with_collab(i, x_pos, x_neg, epochs_per_layer, gamma_mode, verbose)
+    
+    def predict(self, x: torch.Tensor, num_classes: int = 10) -> torch.Tensor:
+        """Predict by trying all labels and picking highest goodness."""
+        batch_size = x.shape[0]
+        goodness_per_label = []
+        
+        for label in range(num_classes):
+            h = overlay_y_on_x(x, label)
+            goodness = []
+            for layer in self.layers:
+                h = layer(h)
+                goodness.append(layer.goodness(h))
+            goodness_per_label.append(sum(goodness).unsqueeze(1))
+        
+        goodness_per_label = torch.cat(goodness_per_label, dim=1)
+        return goodness_per_label.argmax(dim=1)
+    
+    def get_accuracy(self, x: torch.Tensor, y: torch.Tensor) -> float:
+        """Compute accuracy."""
+        predictions = self.predict(x)
+        return (predictions == y).float().mean().item()
 
 
 # ============================================================
-# Main Comparison Experiment
+# Training Functions  
 # ============================================================
 
-def run_comparison(num_epochs: int = 20, 
-                   seed: int = 42,
-                   threshold: float = 2.0,
-                   lr: float = 0.03) -> Dict:
+def get_mnist_loaders(train_batch_size: int = 50000, test_batch_size: int = 10000):
+    """Get MNIST data loaders with large batch sizes."""
+    transform = Compose([
+        ToTensor(),
+        Normalize((0.1307,), (0.3081,)),
+        Lambda(lambda x: torch.flatten(x))
+    ])
+    
+    train_loader = DataLoader(
+        datasets.MNIST('./data/', train=True, download=True, transform=transform),
+        batch_size=train_batch_size, shuffle=True
+    )
+    
+    test_loader = DataLoader(
+        datasets.MNIST('./data/', train=False, download=True, transform=transform),
+        batch_size=test_batch_size, shuffle=False
+    )
+    
+    return train_loader, test_loader
+
+
+def run_comparison(num_epochs: int = 500, seed: int = 1234) -> Dict:
     """
     Compare Original FF vs Layer Collaboration FF on MNIST.
     
@@ -378,38 +302,25 @@ def run_comparison(num_epochs: int = 20,
     - Original FF: ~3.3% error
     - Layer Collab FF: ~2.1% error
     """
-    # Set seed for reproducibility
     torch.manual_seed(seed)
-    
-    # Device
-    device = torch.device('cuda' if torch.cuda.is_available() else 
-                         'mps' if torch.backends.mps.is_available() else 'cpu')
+    device = get_device()
     print(f"Device: {device}")
     
     # Data
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
-    ])
+    train_loader, test_loader = get_mnist_loaders()
     
-    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
-    test_dataset = datasets.MNIST('./data', train=False, transform=transform)
+    x, y = next(iter(train_loader))
+    x, y = x.to(device), y.to(device)
     
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    x_te, y_te = next(iter(test_loader))
+    x_te, y_te = x_te.to(device), y_te.to(device)
     
-    # Architecture
-    input_size = 28 * 28
-    layer_sizes = [input_size, 500, 500]
+    # Create pos/neg samples
+    x_pos = overlay_y_on_x(x, y)
+    rnd = torch.randperm(x.size(0))
+    x_neg = overlay_y_on_x(x, y[rnd])
     
-    # Negative strategy
-    neg_strategy = LabelEmbeddingNegative(num_classes=10)
-    
-    results = {
-        'original': {'train_loss': [], 'test_acc': []},
-        'collab_all': {'train_loss': [], 'test_acc': []},
-        'collab_prev': {'train_loss': [], 'test_acc': []}
-    }
+    results = {}
     
     # ============================================================
     # Train Original FF
@@ -418,76 +329,48 @@ def run_comparison(num_epochs: int = 20,
     print("Training: Original Forward-Forward")
     print("="*60)
     
-    torch.manual_seed(seed)  # Reset for fair comparison
-    model_orig = OriginalFFNetwork(layer_sizes, threshold).to(device)
-    for layer in model_orig.layers:
-        layer.optimizer = optim.Adam(layer.parameters(), lr=lr)
+    torch.manual_seed(seed)
+    model_orig = CollabFFNetwork([784, 500, 500], threshold=2.0, lr=0.03).to(device)
     
-    for epoch in range(num_epochs):
-        start = time.time()
-        losses = train_epoch_original(model_orig, train_loader, neg_strategy, device)
-        acc = evaluate(model_orig, test_loader, neg_strategy, device)
-        elapsed = time.time() - start
-        
-        total_loss = sum(losses.values())
-        results['original']['train_loss'].append(total_loss)
-        results['original']['test_acc'].append(acc)
-        
-        if (epoch + 1) % 5 == 0 or epoch == 0:
-            print(f"Epoch {epoch+1:2d}/{num_epochs} | Loss: {total_loss:.4f} | "
-                  f"Acc: {acc*100:.2f}% | Time: {elapsed:.1f}s")
+    start = time.time()
+    model_orig.train_greedy(x_pos, x_neg, num_epochs)
+    elapsed = time.time() - start
+    
+    train_acc = model_orig.get_accuracy(x, y)
+    test_acc = model_orig.get_accuracy(x_te, y_te)
+    
+    results['original'] = {
+        'train_acc': train_acc,
+        'test_acc': test_acc,
+        'time': elapsed
+    }
+    
+    print(f"\n  Train: {train_acc*100:.2f}%, Test: {test_acc*100:.2f}%, Time: {elapsed:.1f}s")
     
     # ============================================================
-    # Train Layer Collab FF (all layers)
+    # Train Layer Collab FF (all)
     # ============================================================
     print("\n" + "="*60)
-    print("Training: Layer Collaboration FF (γ = all other layers)")
+    print("Training: Layer Collaboration FF (γ = all)")
     print("="*60)
     
     torch.manual_seed(seed)
-    model_collab = CollabFFNetwork(layer_sizes, threshold).to(device)
-    for layer in model_collab.layers:
-        layer.optimizer = optim.Adam(layer.parameters(), lr=lr)
+    model_collab = CollabFFNetwork([784, 500, 500], threshold=2.0, lr=0.03).to(device)
     
-    for epoch in range(num_epochs):
-        start = time.time()
-        losses = train_epoch_collab(model_collab, train_loader, neg_strategy, device, 'all')
-        acc = evaluate(model_collab, test_loader, neg_strategy, device)
-        elapsed = time.time() - start
-        
-        total_loss = sum(losses.values())
-        results['collab_all']['train_loss'].append(total_loss)
-        results['collab_all']['test_acc'].append(acc)
-        
-        if (epoch + 1) % 5 == 0 or epoch == 0:
-            print(f"Epoch {epoch+1:2d}/{num_epochs} | Loss: {total_loss:.4f} | "
-                  f"Acc: {acc*100:.2f}% | Time: {elapsed:.1f}s")
+    start = time.time()
+    model_collab.train_collaborative(x_pos, x_neg, num_epochs, 'all')
+    elapsed = time.time() - start
     
-    # ============================================================
-    # Train Layer Collab FF (previous layers only)
-    # ============================================================
-    print("\n" + "="*60)
-    print("Training: Layer Collaboration FF (γ = previous layers)")
-    print("="*60)
+    train_acc = model_collab.get_accuracy(x, y)
+    test_acc = model_collab.get_accuracy(x_te, y_te)
     
-    torch.manual_seed(seed)
-    model_collab_prev = CollabFFNetwork(layer_sizes, threshold).to(device)
-    for layer in model_collab_prev.layers:
-        layer.optimizer = optim.Adam(layer.parameters(), lr=lr)
+    results['collab_all'] = {
+        'train_acc': train_acc,
+        'test_acc': test_acc,
+        'time': elapsed
+    }
     
-    for epoch in range(num_epochs):
-        start = time.time()
-        losses = train_epoch_collab(model_collab_prev, train_loader, neg_strategy, device, 'previous')
-        acc = evaluate(model_collab_prev, test_loader, neg_strategy, device)
-        elapsed = time.time() - start
-        
-        total_loss = sum(losses.values())
-        results['collab_prev']['train_loss'].append(total_loss)
-        results['collab_prev']['test_acc'].append(acc)
-        
-        if (epoch + 1) % 5 == 0 or epoch == 0:
-            print(f"Epoch {epoch+1:2d}/{num_epochs} | Loss: {total_loss:.4f} | "
-                  f"Acc: {acc*100:.2f}% | Time: {elapsed:.1f}s")
+    print(f"\n  Train: {train_acc*100:.2f}%, Test: {test_acc*100:.2f}%, Time: {elapsed:.1f}s")
     
     # ============================================================
     # Final Results
@@ -496,28 +379,25 @@ def run_comparison(num_epochs: int = 20,
     print("FINAL RESULTS")
     print("="*60)
     
-    final_orig = results['original']['test_acc'][-1]
-    final_collab_all = results['collab_all']['test_acc'][-1]
-    final_collab_prev = results['collab_prev']['test_acc'][-1]
+    print(f"\n{'Method':<35} {'Train Acc':>10} {'Test Acc':>10} {'Test Err':>10}")
+    print("-" * 65)
     
-    print(f"\n{'Method':<35} {'Accuracy':>10} {'Error':>10}")
-    print("-" * 60)
-    print(f"{'Original FF':<35} {final_orig*100:>9.2f}% {(1-final_orig)*100:>9.2f}%")
-    print(f"{'Layer Collab FF (γ=all)':<35} {final_collab_all*100:>9.2f}% {(1-final_collab_all)*100:>9.2f}%")
-    print(f"{'Layer Collab FF (γ=previous)':<35} {final_collab_prev*100:>9.2f}% {(1-final_collab_prev)*100:>9.2f}%")
+    for name, res in results.items():
+        print(f"{name:<35} {res['train_acc']*100:>9.2f}% {res['test_acc']*100:>9.2f}% "
+              f"{(1-res['test_acc'])*100:>9.2f}%")
     
     print("\nPaper reference (MNIST):")
-    print(f"  Original FF:     3.3% error")
-    print(f"  Layer Collab:    2.1% error")
-    
-    improvement_all = (final_collab_all - final_orig) / final_orig * 100
-    improvement_prev = (final_collab_prev - final_orig) / final_orig * 100
-    print(f"\nImprovement over Original FF:")
-    print(f"  γ=all:      {improvement_all:+.2f}% relative")
-    print(f"  γ=previous: {improvement_prev:+.2f}% relative")
+    print("  Original FF:     ~3.3% error (~96.7% accuracy)")
+    print("  Layer Collab:    ~2.1% error (~97.9% accuracy)")
     
     return results
 
 
 if __name__ == "__main__":
-    results = run_comparison(num_epochs=20, seed=42)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', type=int, default=500, help='Epochs per layer')
+    parser.add_argument('--seed', type=int, default=1234, help='Random seed')
+    args = parser.parse_args()
+    
+    results = run_comparison(num_epochs=args.epochs, seed=args.seed)
