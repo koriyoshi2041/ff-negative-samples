@@ -1,0 +1,29 @@
+# Data
+data/
+*.pt
+*.pth
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Experiments output
+results/*.png
+results/*.json
+*.log
+
+# External repos (use submodule if needed)
+repos/
