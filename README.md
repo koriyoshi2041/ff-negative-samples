@@ -21,6 +21,23 @@ Brenig et al. (2023) demonstrated that FF's transfer learning performance "signi
 
 ## 📊 Key Findings
 
+### CKA Representation Analysis Results
+
+**FF vs BP Layer Similarity**
+![CKA Heatmap](results/visualizations/cka_ff_vs_bp.png)
+
+**Self-CKA Comparison: FF layers are disconnected**
+![Self-CKA](results/visualizations/cka_self_comparison.png)
+
+| Metric | Value | Implication |
+|--------|-------|-------------|
+| FF vs BP Layer 0 CKA | 0.444 | Early layers similar |
+| FF vs BP Layer 2 CKA | **0.038** | ⚠️ High layers completely different |
+| FF Self-CKA (avg) | 0.264 | Layer disconnection |
+| BP Self-CKA (avg) | 0.592 | Information flows well |
+
+**Core Insight**: FF's transfer failure is caused by **layer disconnection** — high layers have CKA ~0.03 with early layers, meaning they learn almost independent features. This validates the need for Layer Collaboration.
+
 ### Why FF Fails at Transfer Learning (Brenig et al., 2023)
 - FF matches BP on source task training, but **transfer performance significantly lags behind** (up to 38.9% gap)
 - Root cause: Layer-wise loss functions discard information "unnecessary" for current task
