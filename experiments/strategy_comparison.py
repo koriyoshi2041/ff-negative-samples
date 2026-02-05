@@ -155,6 +155,11 @@ def train_epoch(
 ) -> Tuple[Dict[str, float], float]:
     """Train FF network for one epoch. Returns losses and epoch time."""
     model.train()
+    
+    # Set strategy to training mode (important for SCFF)
+    if hasattr(strategy, 'train'):
+        strategy.train()
+    
     total_losses = {f'layer_{i}': 0.0 for i in range(len(model.layers))}
     num_batches = 0
     
@@ -191,8 +196,13 @@ def evaluate(
     device: torch.device,
     num_classes: int = 10
 ) -> float:
-    """Evaluate FF network accuracy."""
+    """Evaluate FF network accuracy using label embedding."""
     model.eval()
+    
+    # Set strategy to evaluation mode (important for SCFF)
+    if hasattr(strategy, 'eval'):
+        strategy.eval()
+    
     correct = 0
     total = 0
     
@@ -217,6 +227,82 @@ def evaluate(
             
             correct += (predictions == labels).sum().item()
             total += batch_size
+    
+    return correct / total
+
+
+def evaluate_linear_probe(
+    model: FFNetwork,
+    train_loader: DataLoader,
+    test_loader: DataLoader,
+    device: torch.device,
+    num_classes: int = 10,
+    probe_epochs: int = 10,
+    probe_lr: float = 0.01
+) -> float:
+    """
+    Evaluate FF network using linear probe (for SCFF).
+    
+    This is the correct evaluation method for self-supervised learning:
+    1. Extract features from frozen FF network
+    2. Train a linear classifier on these features
+    3. Evaluate the classifier
+    
+    Note: For SCFF, the model was trained with input = 2*x (positive) or x+y (negative).
+    So for consistent feature extraction, we use 2*x as input during evaluation.
+    """
+    model.eval()
+    
+    # Get feature dimension from last layer
+    feature_dim = model.layers[-1].linear.out_features
+    
+    # Create linear probe
+    probe = nn.Linear(feature_dim, num_classes).to(device)
+    probe_optimizer = optim.Adam(probe.parameters(), lr=probe_lr)
+    criterion = nn.CrossEntropyLoss()
+    
+    # Train linear probe
+    for epoch in range(probe_epochs):
+        probe.train()
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
+            
+            # For SCFF: use 2*x to match training format (positive = x + x = 2x)
+            flat = images.view(images.size(0), -1)
+            scff_input = 2 * flat  # Match SCFF positive sample format
+            
+            with torch.no_grad():
+                activations = model(scff_input)
+                features = activations[-1]  # Last layer features
+            
+            # Train probe
+            logits = probe(features)
+            loss = criterion(logits, labels)
+            
+            probe_optimizer.zero_grad()
+            loss.backward()
+            probe_optimizer.step()
+    
+    # Evaluate
+    probe.eval()
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
+            
+            flat = images.view(images.size(0), -1)
+            scff_input = 2 * flat  # Match SCFF positive sample format
+            
+            activations = model(scff_input)
+            features = activations[-1]
+            
+            logits = probe(features)
+            predictions = logits.argmax(dim=1)
+            
+            correct += (predictions == labels).sum().item()
+            total += images.size(0)
     
     return correct / total
 
@@ -282,6 +368,9 @@ def run_single_experiment(
     # Check if mono-forward
     use_mono = hasattr(strategy, 'uses_negatives') and not strategy.uses_negatives
     
+    # Check if SCFF (needs linear probe evaluation)
+    use_linear_probe = isinstance(strategy, SelfContrastiveStrategy)
+    
     # Create model
     layer_sizes = [784, 500, 500]  # MNIST input -> 500 -> 500
     model = FFNetwork(layer_sizes, threshold=2.0).to(device)
@@ -303,8 +392,16 @@ def run_single_experiment(
         )
         total_time += epoch_time
         
-        # Evaluate
-        accuracy = evaluate(model, test_loader, strategy, device)
+        # Evaluate (use appropriate method based on strategy)
+        if use_linear_probe:
+            # SCFF: use linear probe evaluation
+            accuracy = evaluate_linear_probe(
+                model, train_loader, test_loader, device,
+                probe_epochs=5, probe_lr=0.01
+            )
+        else:
+            # Other strategies: use label embedding evaluation
+            accuracy = evaluate(model, test_loader, strategy, device)
         
         history['losses'].append(sum(losses.values()))
         history['accuracies'].append(accuracy)
