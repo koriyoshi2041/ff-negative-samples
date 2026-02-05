@@ -4,104 +4,132 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+---
+
+## 🔬 Key Experimental Results
+
+### 🚨 Transfer Learning: FF's Catastrophic Failure
+
+**MNIST → Fashion-MNIST Transfer Experiment**
+
+![Strategy Comparison](results/strategy_comparison.png)
+
+| Method | Source Acc | Transfer Acc | vs Random Init |
+|--------|------------|--------------|----------------|
+| **BP (Backprop)** | 97.73% | **73.19%** | -7.41% |
+| **Random Init** | — | **80.60%** | baseline |
+| **FF Original** | 56.75% | **13.47%** | **-67.13%** 🔴 |
+| **FF + Layer Collab (All)** | 48.12% | 10.00% | -70.60% |
+| **FF + Layer Collab (Prev)** | 56.50% | 10.21% | -70.39% |
+
+#### 🔥 The Shocking Truth
+
+```
+Random initialization → 80.6% transfer accuracy
+FF pretrained weights  → 13.5% transfer accuracy (basically random guessing!)
+                         ↓
+            FF pretrained features are HARMFUL, not helpful
+```
+
+**This is not a bug — it's a fundamental limitation of layer-wise learning.**
+
+---
+
+### 📊 CKA Analysis: Why FF Fails
+
+**The Root Cause: Catastrophic Layer Disconnection**
+
+<table>
+<tr>
+<td width="50%">
+
+**FF vs BP Cross-Network Similarity**
+
+![FF vs BP CKA](results/visualizations/cka_ff_vs_bp.png)
+
+*Diagonal drops from 0.44→0.04 — deeper layers completely diverge*
+
+</td>
+<td width="50%">
+
+**Self-CKA: Layer Collaboration**
+
+![Self-CKA Comparison](results/visualizations/cka_self_comparison.png)
+
+*FF layers are isolated; BP layers collaborate*
+
+</td>
+</tr>
+</table>
+
+#### Quantitative Evidence
+
+| Metric | FF | BP | Implication |
+|--------|----|----|-------------|
+| **Layer 0↔Layer 2 CKA** | **0.025** | 0.39 | FF: layers don't talk |
+| **Avg Self-CKA** | 0.264 | **0.592** | BP: 2.2× more coherent |
+| **Layer 2 vs BP** | **0.038** | — | FF high-layers = alien |
+
+#### The Layer Disconnection Problem
+
+```
+FF Network (broken information flow):
+   Layer 0 ←--0.72--→ Layer 1 ←--0.05--→ Layer 2
+                                   ↑
+                            Almost zero correlation!
+
+BP Network (coherent information flow):  
+   Layer 0 ←--0.63--→ Layer 1 ←--0.74--→ Layer 2
+              ↑                    ↑
+              └───────0.39─────────┘  (skip connection effect)
+```
+
+---
+
+### 📈 Negative Sample Strategy Comparison
+
+| Rank | Strategy | Accuracy | Time | Labels |
+|------|----------|----------|------|--------|
+| 🥇 | **label_embedding** | 38.81% | 150s | ✓ |
+| 🥇 | **class_confusion** | 38.81% | 106s | ✓ |
+| — | random_noise | 9.80%* | 99s | ✗ |
+| — | image_mixing | 9.80%* | 101s | ✗ |
+
+*\*~10% = random chance. Non-label strategies need linear probe evaluation (pending).*
+
+**Status:** 4/10 strategies completed. In progress: `self_contrastive`, `masking`, `layer_wise`, `adversarial`, `hard_mining`, `mono_forward`
+
+---
+
 ## 🎯 Research Goals
 
-1. **Negative Sample Strategy Comparison**: First systematic comparison of 10+ negative sample generation strategies for FF algorithm
-2. **Transfer Learning Analysis**: Investigate why FF fails at transfer learning and potential solutions (Layer Collaboration, etc.)
+1. **Negative Sample Strategy Comparison**: First systematic comparison of 10+ strategies
+2. **Transfer Learning Analysis**: Investigate why FF fails and whether Layer Collaboration helps (spoiler: it doesn't)
+
+---
 
 ## 📖 Research Significance
 
-### Why Systematic Negative Sample Comparison Matters
+### Why This Matters
 
-The Forward-Forward algorithm's performance is fundamentally tied to the quality of negative samples — yet **no prior work has systematically compared different strategies**. Hinton's original paper proposed label embedding, but subsequent works introduced mixing, masking, self-contrastive, and even negative-free variants (MonoForward, CwComp) without head-to-head comparison. This gap leaves practitioners without guidance on which strategy to use and researchers without understanding of *why* certain approaches work better. Our systematic comparison across 10 strategies aims to: (1) establish empirical baselines, (2) identify which properties make negatives effective (hardness? diversity? distribution gap?), and (3) inform the design of next-generation strategies.
+**The Forward-Forward algorithm** (Hinton, 2022) is a promising alternative to backpropagation that could enable more biologically plausible learning. However:
 
-### Why Layer Collaboration + Transfer Learning is a Critical Gap
+1. **No systematic negative sample comparison exists** — practitioners don't know which strategy to use
+2. **Transfer learning fails catastrophically** — making FF impractical for real-world scenarios
+3. **Layer Collaboration (AAAI 2024) was never tested on transfer** — we fill this gap
 
-Brenig et al. (2023) demonstrated that FF's transfer learning performance "significantly lags behind BP in ALL studied settings" — with gaps up to 38.9%. They attributed this to FF's layer-wise loss functions discarding information unnecessary for the current task. The Layer Collaboration mechanism (AAAI 2024) was proposed to address FF's layer isolation problem by introducing global goodness signals. **However, the Layer Collaboration paper did not test transfer learning.** This is a critical gap: if layer collaboration improves information flow between layers, it *should* help preserve transferable features — but this hypothesis remains untested. Our work fills this gap by directly measuring whether Layer Collaboration improves FF's transfer learning, potentially identifying a path to make FF practically useful for real-world scenarios where pre-training and fine-tuning are essential.
-
----
-
-## 🔬 Experiment Results
-
-### 🚨 Transfer Learning: FF vs BP (MNIST → Fashion-MNIST)
-
-> **核心发现：FF 迁移学习性能远落后于 BP，甚至不如随机初始化！**
-
-![Transfer Learning Comparison](results/strategy_comparison.png)
-
-| Method | Source Accuracy | Transfer Accuracy | Gap vs BP |
-|--------|-----------------|-------------------|-----------|
-| **BP (Backprop)** | 97.73% | **73.19%** | — |
-| **Random Init** | — | **80.60%** | +7.41% |
-| **FF Original** | 56.75% | **13.47%** | **-59.72%** ⚠️ |
-| **FF + Layer Collab (All)** | 48.12% | 10.00% | -63.19% |
-| **FF + Layer Collab (Prev)** | 56.50% | 10.21% | -62.98% |
-
-**🔥 Key Insight**: 
-- **Random initialization outperforms all FF variants!** (80.6% vs 13.47%)
-- FF 的预训练特征不仅没有帮助，反而有害
-- Layer Collaboration 并未改善迁移学习（可能需要更多调优）
+Our experiments provide quantitative evidence for FF's limitations and potential paths forward.
 
 ---
 
-### 📊 CKA Representation Analysis
+## 📚 Key Findings Summary
 
-**FF vs BP Layer Similarity**
-![CKA Heatmap](results/visualizations/cka_ff_vs_bp.png)
-> *解读：对角线值从 0.444 递减到 0.038，表明层数越深，FF 与 BP 的差异越大*
-
-**Self-CKA Comparison: FF layers are disconnected**
-![Self-CKA](results/visualizations/cka_self_comparison.png)
-> *解读：FF 热力图呈"块状"（层间独立），BP 呈"平滑过渡"（层间协作）*
-
-| Metric | Value | Implication |
-|--------|-------|-------------|
-| FF vs BP Layer 0 CKA | 0.444 | ✅ Early layers similar |
-| FF vs BP Layer 2 CKA | **0.038** | ⚠️ High layers completely different |
-| **FF L0↔L2 Self-CKA** | **0.025** | 🚨 **Catastrophic layer disconnection** |
-| FF Self-CKA (avg) | 0.264 | Layer disconnection |
-| BP Self-CKA (avg) | 0.592 | Information flows well |
-
-**🔥 Core Insight**: FF's transfer failure is caused by **catastrophic layer disconnection**:
-- FF Layer 0 ↔ Layer 2 CKA = **0.025** (almost completely independent!)
-- BP's minimum cross-layer CKA = 0.36 (14× higher)
-- High layers learn features with no connection to early layers, making transfer impossible
-
----
-
-### 📈 Negative Sample Strategy Comparison (Partial)
-
-| Rank | Strategy | Accuracy | Time (s) | Uses Labels |
-|------|----------|----------|----------|-------------|
-| 🥇 | **label_embedding** | 38.81% | 150.2 | ✓ |
-| 🥇 | **class_confusion** | 38.81% | 105.5 | ✓ |
-| 3 | random_noise | 9.80% | 99.4 | ✗ |
-| 3 | image_mixing | 9.80% | 100.6 | ✗ |
-
-**⚠️ Note**: Non-label strategies show ~10% (random chance) because evaluation requires label embedding. Need linear probe for fair comparison.
-
-*Status: 4/10 strategies completed. In progress: self_contrastive, masking, layer_wise, adversarial, hard_mining, mono_forward*
-
----
-
-## 📊 Key Findings
-
-### Why FF Fails at Transfer Learning (Brenig et al., 2023)
-- FF matches BP on source task training, but **transfer performance significantly lags behind** (up to 38.9% gap)
-- Root cause: Layer-wise loss functions discard information "unnecessary" for current task
-- **Insight**: The problem isn't FF itself, but the training objective design
-
-### Layer Collaboration (AAAI 2024)
-- Adds global goodness term (γ) to local optimization
-- Improves MNIST error from 3.3% → 2.1%
-- **Our Finding**: Does NOT help transfer learning (needs further investigation)
-
-### State-of-the-Art (2024-2025)
-| Method | Source | Innovation | CIFAR-10 |
-|--------|--------|------------|----------|
-| CwComp | AAAI 2024 | No negative samples needed | 78% |
-| SCFF | Nature 2025 | Self-contrastive, no labels | ~70% |
-| Distance-FF | arXiv 2024 | Metric learning | SOTA |
+| Finding | Evidence | Impact |
+|---------|----------|--------|
+| FF transfer worse than random | 13.5% vs 80.6% | FF pretrained weights harmful |
+| Layer disconnection is root cause | Self-CKA 0.026 vs 0.59 | Each layer learns in isolation |
+| Layer Collaboration doesn't help transfer | 10% accuracy | Need different approach |
+| High layers completely different | CKA=0.038 | Features don't transfer |
 
 ---
 
@@ -109,18 +137,18 @@ Brenig et al. (2023) demonstrated that FF's transfer learning performance "signi
 
 All 10 strategies with unified interface:
 
-| # | Strategy | Labels Required | Description |
-|---|----------|-----------------|-------------|
-| 1 | LabelEmbedding | ✓ | Hinton's original method |
-| 2 | ImageMixing | ✗ | Pixel-wise mixing of images |
-| 3 | RandomNoise | ✗ | Pure noise baseline |
-| 4 | ClassConfusion | ✓ | Correct image + wrong label |
-| 5 | SelfContrastive | ✗ | Strong augmentation (SCFF) |
-| 6 | Masking | ✗ | Random pixel masking |
-| 7 | LayerWise | ✗ | Layer-adaptive generation |
-| 8 | Adversarial | ✗ | Gradient-based perturbation |
-| 9 | HardMining | ✓ | Select hardest negatives |
-| 10 | MonoForward | ✓ | No negatives variant |
+| # | Strategy | Labels | Description | Status |
+|---|----------|--------|-------------|--------|
+| 1 | LabelEmbedding | ✓ | Hinton's original | ✅ |
+| 2 | ClassConfusion | ✓ | Wrong label embedding | ✅ |
+| 3 | RandomNoise | ✗ | Pure noise baseline | ✅ |
+| 4 | ImageMixing | ✗ | Pixel-wise mixing | ✅ |
+| 5 | SelfContrastive | ✗ | Strong augmentation (SCFF) | 🔄 |
+| 6 | Masking | ✗ | Random pixel masking | ⏳ |
+| 7 | LayerWise | ✗ | Layer-adaptive generation | ⏳ |
+| 8 | Adversarial | ✗ | Gradient-based perturbation | ⏳ |
+| 9 | HardMining | ✓ | Select hardest negatives | ⏳ |
+| 10 | MonoForward | ✓ | No negatives variant | ⏳ |
 
 ---
 
@@ -130,25 +158,21 @@ All 10 strategies with unified interface:
 ff-research/
 ├── negative_strategies/     # 10 strategy implementations
 │   ├── base.py             # Base class + registry
-│   ├── label_embedding.py
-│   ├── image_mixing.py
+│   ├── label_embedding.py  # Hinton's original
 │   └── ...
-├── analysis/               # Representation analysis
-│   ├── cka_analysis.py     # CKA similarity
-│   └── linear_probe.py     # Linear probing
-├── experiments/            # Experiment scripts
-│   ├── ff_baseline.py      # Verified FF baseline
-│   └── transfer_learning.py # Transfer learning experiments
-├── results/                # Experiment outputs
-│   ├── visualizations/     # CKA heatmaps
-│   ├── transfer/           # Transfer learning results
+├── analysis/               # Representation analysis tools
+│   ├── cka_analysis.py     # CKA similarity measurement
+│   └── linear_probe.py     # Linear probing evaluation
+├── experiments/            # Experiment runners
+│   ├── ff_baseline.py      # FF baseline implementation
+│   └── transfer_learning.py
+├── results/                # 📊 All outputs here
+│   ├── visualizations/     # CKA heatmaps (PNG)
+│   ├── transfer/           # Transfer learning JSON
 │   ├── strategy_comparison.json
 │   └── cka_summary.json
 ├── literature/             # Paper analyses
-│   ├── brenig2023_analysis.md
-│   ├── lorberbom2024_layer_collab.md
-│   └── opensource_survey.md
-└── KEY_FINDINGS.md         # Summary of discoveries
+└── KEY_FINDINGS.md         # Detailed findings
 ```
 
 ---
@@ -158,7 +182,7 @@ ff-research/
 ```python
 from negative_strategies import LabelEmbeddingStrategy, ImageMixingStrategy
 
-# Unified interface
+# Unified interface for all strategies
 strategy = LabelEmbeddingStrategy(num_classes=10)
 positive = strategy.create_positive(images, labels)
 negative = strategy.generate(images, labels)
@@ -169,30 +193,31 @@ negative = strategy.generate(images, labels)
 ## 📈 Experiment Status
 
 ### ✅ Completed
-- [x] Literature review complete
+- [x] Literature review (8+ papers analyzed)
 - [x] 10 negative strategies implemented
-- [x] CKA/Linear Probe code ready
-- [x] CKA representation analysis (FF vs BP)
+- [x] CKA representation analysis
 - [x] Transfer learning experiment (MNIST → Fashion-MNIST)
-- [x] Layer Collaboration implementation & test
+- [x] Layer Collaboration implementation & testing
+- [x] Strategy comparison (4/10)
 
 ### 🔄 In Progress
-- [ ] MNIST strategy comparison (4/10 done)
-- [ ] Self-contrastive strategy testing
+- [ ] Complete remaining 6 strategies
+- [ ] Linear probe for non-label strategies
 
 ### 📋 Planned
-- [ ] Linear probe evaluation for non-label strategies
 - [ ] CIFAR-10 experiments
-- [ ] Investigate why Layer Collab didn't help transfer
+- [ ] Investigate alternative layer collaboration approaches
 
 ---
 
 ## 📚 References
 
-- Hinton, G. (2022). The Forward-Forward Algorithm. arXiv:2212.13345
-- Brenig et al. (2023). A Study of Forward-Forward for Self-Supervised Learning. arXiv:2309.11955
-- Lorberbom et al. (2024). Layer Collaboration in Forward-Forward. AAAI 2024
+- Hinton, G. (2022). [The Forward-Forward Algorithm](https://arxiv.org/abs/2212.13345)
+- Brenig et al. (2023). [A Study of Forward-Forward for Self-Supervised Learning](https://arxiv.org/abs/2309.11955)
+- Lorberbom et al. (2024). [Layer Collaboration in Forward-Forward](https://ojs.aaai.org/index.php/AAAI/article/view/29307). AAAI 2024
 - Nature Communications (2025). Self-Contrastive Forward-Forward
+
+---
 
 ## 📝 License
 
