@@ -1,12 +1,146 @@
-# Forward-Forward 算法深度研究
+# Forward-Forward Algorithm Research
 
-> 系统性研究 Hinton Forward-Forward 算法的负样本策略、新架构变体及迁移学习特性。
+<div align="center">
+
+**[English](#english) | [中文](#中文)**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🎯 核心发现
+</div>
 
-### 1. CwC-FF: 无需负样本的革命性架构
+---
+
+<a name="english"></a>
+## English Version
+
+### Core Findings
+
+#### 1. CwC-FF: Revolutionary Architecture Without Negative Samples
+
+| Model | MNIST Accuracy | Negative Samples | Architecture |
+|-------|----------------|------------------|--------------|
+| Standard FF (MLP) | 93.15% | Required | Fully Connected |
+| **CwC-FF (CNN)** | **98.75%** | **Not Required** | Channel Competition |
+
+**CwC-FF eliminates negative samples entirely through channel competition, while improving accuracy by 5.6%.**
+
+<details>
+<summary>📈 View CwC-FF Learning Curve</summary>
+
+![CwC-FF Learning Curve](./results/cwc_ff_learning_curve.png)
+
+</details>
+
+#### 2. Catastrophic Layer Disconnection
+
+FF's inter-layer information flow is nearly zero - the root cause of transfer learning failure.
+
+| Metric | FF | BP | Gap |
+|--------|----|----|-----|
+| Layer 0 ↔ Layer 2 CKA | **0.025** | 0.39 | 15.6× |
+| Avg Inter-layer Coherence | 0.264 | 0.592 | 2.2× |
+
+<details>
+<summary>🔥 View CKA Heatmap</summary>
+
+![CKA Heatmap](./results/cka_heatmap.png)
+
+</details>
+
+#### 3. Counter-intuitive Transfer Learning Discovery
+
+MNIST → Fashion-MNIST transfer:
+
+| Method | Transfer Acc | vs Random Init |
+|--------|--------------|----------------|
+| Random Init | **80.60%** | Baseline |
+| BP Pretrained | 73.19% | −7.41% |
+| FF Pretrained | 13.47% | **−67.13%** 🔴 |
+
+**Conclusion: FF pretrained weights are harmful to transfer.** This is because FF's layer-wise isolated training results in features lacking cross-layer consistency.
+
+<details>
+<summary>📊 View Transfer Comparison</summary>
+
+![Transfer Comparison](./results/transfer_comparison.png)
+
+</details>
+
+---
+
+### Implementations
+
+#### Models (4 types)
+
+| Model | File | Description | Status |
+|-------|------|-------------|--------|
+| **FF Baseline** | `models/ff_correct.py` | Corrected standard FF | ✅ 93.15% |
+| **Layer Collab** | `models/layer_collab_ff.py` | Layer Collaboration (AAAI 2024) | ✅ |
+| **PFF** | `models/pff.py` | Predictive FF, dual-circuit | ✅ |
+| **CwC-FF** | `models/cwc_ff.py` | Channel-wise Competitive FF | ✅ 98.75% |
+
+#### Negative Sample Strategies (10 types)
+
+| Strategy | Requires Labels | Description |
+|----------|-----------------|-------------|
+| `label_embedding` | ✓ | Hinton's original: embed label in pixels |
+| `class_confusion` | ✓ | Correct image + wrong label |
+| `random_noise` | ✗ | Pure random noise |
+| `image_mixing` | ✗ | Pixel-wise image mixing |
+| `self_contrastive` | ✗ | SCFF: self-contrastive (Nature 2025) |
+| `masking` | ✗ | Random/block/patch masking |
+| `layer_wise` | ✗ | Layer-adaptive negative samples |
+| `adversarial` | ✗ | FGSM/PGD adversarial perturbation |
+| `hard_mining` | ✓ | Hard negative mining |
+| `mono_forward` | - | No-negative variant (VICReg) |
+
+---
+
+### Critical Bug Fixes
+
+| Bug | Wrong | Correct | Impact |
+|-----|-------|---------|--------|
+| **Goodness calculation** | `sum(dim=1)` | `mean(dim=1)` | Severe |
+| **Label embedding value** | Fixed `1.0` | `x.max()` | Severe |
+| **Training mode** | mini-batch, simultaneous | full-batch, layer-by-layer greedy | Severe |
+| **SCFF input processing** | addition `x + x` | concatenation `cat([x, x])` | Severe |
+
+**Accuracy after fixes: 38% → 93%**
+
+---
+
+### Quick Start
+
+```bash
+# Install
+cd ff-research
+python -m venv venv
+source venv/bin/activate
+pip install torch torchvision matplotlib seaborn
+
+# Run baseline (93% accuracy)
+python experiments/ff_baseline.py
+
+# Run CwC-FF (98.75% accuracy, no negative samples)
+python experiments/cwc_full_test.py
+```
+
+---
+
+### Our Unique Contributions
+
+1. **First to test Layer Collaboration for transfer learning** → Proved ineffective
+2. **First to quantify FF's "layer disconnection" with CKA** → L0-L2 CKA = 0.025
+3. **First to prove FF pretrained weights are "harmful"** → 67% worse than random
+
+---
+
+<a name="中文"></a>
+## 中文版本
+
+### 核心发现
+
+#### 1. CwC-FF: 无需负样本的革命性架构
 
 | 模型 | MNIST准确率 | 负样本 | 架构 |
 |------|------------|--------|------|
@@ -15,9 +149,14 @@
 
 **CwC-FF 通过通道竞争机制完全消除负样本需求，同时准确率提升5.6%。**
 
-![CwC-FF Learning Curve](results/cwc_ff_learning_curve.png)
+<details>
+<summary>📈 查看 CwC-FF 学习曲线</summary>
 
-### 2. 层断连现象 (Catastrophic Layer Disconnection)
+![CwC-FF Learning Curve](./results/cwc_ff_learning_curve.png)
+
+</details>
+
+#### 2. 层断连现象 (Catastrophic Layer Disconnection)
 
 FF的层间信息流几乎为零，这是迁移学习失败的根本原因。
 
@@ -26,9 +165,14 @@ FF的层间信息流几乎为零，这是迁移学习失败的根本原因。
 | Layer 0 ↔ Layer 2 CKA | **0.025** | 0.39 | 15.6× |
 | 平均层间一致性 | 0.264 | 0.592 | 2.2× |
 
-![CKA Heatmap](results/cka_heatmap.png)
+<details>
+<summary>🔥 查看 CKA 热力图</summary>
 
-### 3. 迁移学习的反直觉发现
+![CKA Heatmap](./results/cka_heatmap.png)
+
+</details>
+
+#### 3. 迁移学习的反直觉发现
 
 MNIST → Fashion-MNIST 迁移实验：
 
@@ -40,13 +184,18 @@ MNIST → Fashion-MNIST 迁移实验：
 
 **结论：FF预训练的权重对迁移有害。** 这是因为FF的层级隔离训练导致特征缺乏跨层一致性。
 
-![Transfer Comparison](results/transfer_comparison.png)
+<details>
+<summary>📊 查看迁移学习对比</summary>
+
+![Transfer Comparison](./results/transfer_comparison.png)
+
+</details>
 
 ---
 
-## 📦 实现清单
+### 实现清单
 
-### 模型架构 (4种)
+#### 模型架构 (4种)
 
 | 模型 | 文件 | 描述 | 状态 |
 |------|------|------|------|
@@ -55,7 +204,7 @@ MNIST → Fashion-MNIST 迁移实验：
 | **PFF** | `models/pff.py` | 预测性FF，双回路架构 | ✅ |
 | **CwC-FF** | `models/cwc_ff.py` | 通道竞争FF，无需负样本 | ✅ 98.75% |
 
-### 负样本策略 (10种)
+#### 负样本策略 (10种)
 
 | 策略 | 需要标签 | 描述 |
 |------|----------|------|
@@ -72,36 +221,20 @@ MNIST → Fashion-MNIST 迁移实验：
 
 ---
 
-## 🔧 关键Bug修复
-
-在研究过程中发现并修复了多个实现错误：
+### 关键Bug修复
 
 | 问题 | 错误实现 | 正确实现 | 影响 |
 |------|---------|---------|------|
 | **Goodness计算** | `sum(dim=1)` | `mean(dim=1)` | 严重 |
 | **标签嵌入值** | 固定 `1.0` | `x.max()` | 严重 |
-| **训练方式** | mini-batch, 同时训练所有层 | full-batch, layer-by-layer greedy | 严重 |
+| **训练方式** | mini-batch, 同时训练 | full-batch, layer-by-layer greedy | 严重 |
 | **SCFF输入处理** | 加法 `x + x` | 拼接 `cat([x, x])` | 严重 |
 
 **修复后准确率：38% → 93%**
 
 ---
 
-## 🏗️ 架构对比
-
-![Architecture Comparison](results/architecture_comparison.png)
-
-| 特性 | 标准FF | Layer Collab | PFF | CwC-FF |
-|------|--------|--------------|-----|--------|
-| 需要负样本 | ✓ | ✓ | ✓ | **✗** |
-| 层间协同 | ✗ | ✓ | ✓ | ✗ |
-| 生成能力 | ✗ | ✗ | ✓ | ✗ |
-| 局部学习 | ✓ | ✓ | ✓ | ✓ |
-| 生物合理性 | 高 | 高 | 最高 | 中 |
-
----
-
-## 🚀 快速开始
+### 快速开始
 
 ```bash
 # 安装
@@ -115,61 +248,47 @@ python experiments/ff_baseline.py
 
 # 运行CwC-FF (98.75% 准确率，无需负样本)
 python experiments/cwc_full_test.py
-
-# 策略对比
-python experiments/correct_strategy_comparison.py --epochs 500
-```
-
-### 使用示例
-
-```python
-# 负样本策略
-from negative_strategies import StrategyRegistry
-
-strategy = StrategyRegistry.create('label_embedding', num_classes=10)
-positive = strategy.create_positive(images, labels)
-negative = strategy.generate(images, labels)
-
-# CwC-FF (无需负样本)
-from models.cwc_ff import create_cwc_mnist, train_cwc_network
-
-model = create_cwc_mnist()
-results = train_cwc_network(model, train_loader, test_loader, num_epochs=20)
 ```
 
 ---
 
-## 📊 项目结构
+### 我们的独特贡献
+
+1. **首次测试Layer Collaboration的迁移能力** → 证明无效
+2. **首次用CKA量化FF的"层断连"** → L0-L2 CKA=0.025
+3. **首次证明FF预训练权重"有害"** → 比随机差67%
+
+---
+
+### 核心洞察
+
+> **FF的层级隔离不是bug，是feature——但这个feature让它无法迁移。解决方案不是"加协同"，而是重新设计学习目标（如CwC-FF的通道竞争）。**
+
+---
+
+## Project Structure
 
 ```
 ff-research/
-├── models/                    # 模型实现
-│   ├── ff_correct.py         # 修正的FF基线 (93%)
-│   ├── layer_collab_ff.py    # 层间协同FF
-│   ├── pff.py                # 预测性FF (双回路)
-│   └── cwc_ff.py             # 通道竞争FF (98.75%)
-├── negative_strategies/       # 10种负样本策略
-├── experiments/              # 实验脚本
+├── models/                    # Model implementations
+│   ├── ff_correct.py         # Corrected FF baseline (93%)
+│   ├── layer_collab_ff.py    # Layer Collaboration FF
+│   ├── pff.py                # Predictive FF (dual-circuit)
+│   └── cwc_ff.py             # Channel-wise Competitive FF (98.75%)
+├── negative_strategies/       # 10 negative sample strategies
+├── experiments/              # Experiment scripts
 ├── analysis/                 # CKA, Linear Probe
-├── results/                  # 实验结果与图表
-├── repos/                    # 参考实现
-│   ├── predictive-forward-forward/   # PFF官方
-│   ├── CwComp/                       # CwC-FF官方
-│   └── contrastive-forward-forward/  # SCFF官方
-└── literature/               # 论文分析
+├── results/                  # Results & visualizations
+└── repos/                    # Reference implementations
 ```
 
----
-
-## 📚 参考文献
+## References
 
 - Hinton (2022). [The Forward-Forward Algorithm](https://arxiv.org/abs/2212.13345)
-- Lorberbom et al. (2024). [Layer Collaboration in FF](https://ojs.aaai.org/index.php/AAAI/article/view/29307). AAAI 2024
+- Lorberbom et al. (2024). [Layer Collaboration in FF](https://ojs.aaai.org/index.php/AAAI/article/view/29307). AAAI
 - Ororbia & Mali (2023). [Predictive Forward-Forward](https://arxiv.org/abs/2301.01452)
-- Papachristodoulou et al. (2024). [CwC-FF](https://arxiv.org/abs/2312.12668). AAAI 2024
+- Papachristodoulou et al. (2024). [CwC-FF](https://arxiv.org/abs/2312.12668). AAAI
 - Chen et al. (2025). [Self-Contrastive FF](https://www.nature.com/articles/s41467-025-61037-0). Nature Comm.
-
----
 
 ## License
 
