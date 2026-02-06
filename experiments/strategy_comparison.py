@@ -58,8 +58,8 @@ class FFLayer(nn.Module):
         return self.relu(self.linear(x_normalized))
     
     def goodness(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute goodness (sum of squared activations)."""
-        return (x ** 2).sum(dim=1)
+        """Compute goodness (mean of squared activations)."""
+        return (x ** 2).mean(dim=1)
     
     def ff_loss(self, pos_goodness: torch.Tensor, neg_goodness: torch.Tensor) -> torch.Tensor:
         """FF loss: push positive goodness above threshold, negative below."""

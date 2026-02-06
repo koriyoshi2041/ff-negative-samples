@@ -29,57 +29,57 @@ class LabelEmbeddingStrategy(NegativeStrategy):
         self.label_scale = label_scale
     
     def create_positive(
-        self, 
-        images: torch.Tensor, 
+        self,
+        images: torch.Tensor,
         labels: torch.Tensor,
         **kwargs
     ) -> torch.Tensor:
         """Create positive samples with correct label embedded."""
         batch_size = images.size(0)
         flat = images.view(batch_size, -1).clone()
-        
-        # Create one-hot encoding of correct labels
-        one_hot = torch.zeros(batch_size, self.num_classes, device=images.device)
-        one_hot.scatter_(1, labels.unsqueeze(1), self.label_scale)
-        
-        # Embed in first pixels
-        flat[:, :self.num_classes] = one_hot
+
+        # Use x.max() as the label value (like Hinton's original implementation)
+        label_value = flat.abs().max() if flat.numel() > 0 else 1.0
+
+        # Zero out label positions and embed correct label
+        flat[:, :self.num_classes] = 0.0
+        flat[range(batch_size), labels] = label_value
         return flat
     
     def generate(
-        self, 
-        images: torch.Tensor, 
+        self,
+        images: torch.Tensor,
         labels: torch.Tensor,
         **kwargs
     ) -> torch.Tensor:
         """
         Generate negative samples with wrong labels embedded.
-        
+
         Args:
             images: Input images (B, C, H, W) or (B, D)
             labels: Correct labels (B,)
-            
+
         Returns:
             Negative samples with wrong labels embedded (B, D)
         """
         batch_size = images.size(0)
         flat = images.view(batch_size, -1).clone()
-        
+
+        # Use x.max() as the label value (like Hinton's original implementation)
+        label_value = flat.abs().max() if flat.numel() > 0 else 1.0
+
         # Generate random wrong labels
         wrong_labels = torch.randint(
-            0, self.num_classes, (batch_size,), 
+            0, self.num_classes, (batch_size,),
             device=images.device
         )
         # Ensure labels are actually wrong
         mask = wrong_labels == labels
         wrong_labels[mask] = (wrong_labels[mask] + 1) % self.num_classes
-        
-        # Create one-hot encoding
-        one_hot = torch.zeros(batch_size, self.num_classes, device=images.device)
-        one_hot.scatter_(1, wrong_labels.unsqueeze(1), self.label_scale)
-        
-        # Embed wrong label
-        flat[:, :self.num_classes] = one_hot
+
+        # Zero out label positions and embed wrong label
+        flat[:, :self.num_classes] = 0.0
+        flat[range(batch_size), wrong_labels] = label_value
         return flat
     
     @property

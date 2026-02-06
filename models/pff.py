@@ -886,7 +886,20 @@ class PFFNetwork(nn.Module):
         L = L2 + L1 + L0 + reg
         L_gen = L2 + L1 + L0
 
-        # Update generative weights
+        # Update z_g via gradient descent on L2 BEFORE optimizer step
+        # (must happen before weights are modified)
+        if self.z_g.grad is not None:
+            self.z_g.grad.zero_()
+        # Recompute z2_bar for z_g gradient to avoid graph invalidation
+        z3_bar_for_z = modified_relu(self.z_g)
+        z2_hat_for_z = torch.matmul(l2_normalize(z3_bar_for_z), self.gen_circuit.Gy)
+        z2_bar_for_z = modified_relu(z2_hat_for_z)
+        L2_for_z = (z2_bar_for_z - z2.detach()).pow(2).sum(dim=1, keepdim=True).mean()
+        L2_for_z.backward(retain_graph=True)
+        if self.z_g.grad is not None:
+            self.z_g.data = self.z_g.data - self.z_g.grad.data * self.beta
+
+        # Update generative weights (after z_g update)
         if opt is not None:
             opt.zero_grad()
             L.backward(retain_graph=True)
@@ -895,14 +908,6 @@ class PFFNetwork(nn.Module):
                 if p.grad is not None:
                     p.grad.data.clamp_(-1.0, 1.0)
             opt.step()
-
-        # Update z_g via gradient descent on L2
-        if self.z_g.grad is not None:
-            self.z_g.grad.zero_()
-        L2_for_z = (z2_bar - z2.detach()).pow(2).sum(dim=1, keepdim=True).mean()
-        L2_for_z.backward(retain_graph=True)
-        if self.z_g.grad is not None:
-            self.z_g.data = self.z_g.data - self.z_g.grad.data * self.beta
 
         return L_gen, x_hat.detach()
 
