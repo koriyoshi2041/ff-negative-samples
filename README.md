@@ -51,13 +51,13 @@ FF's inter-layer information flow is nearly zero - the root cause of transfer le
 
 MNIST → Fashion-MNIST transfer:
 
-| Method | Transfer Acc | vs Random Init |
-|--------|--------------|----------------|
-| Random Init | **80.60%** | Baseline |
-| BP Pretrained | 73.19% | −7.41% |
-| FF Pretrained | 13.47% | **−67.13%** 🔴 |
+| Method | Source Acc | Transfer Acc | vs Random Init |
+|--------|------------|--------------|----------------|
+| Random Init | N/A | **83.81%** | Baseline |
+| BP Pretrained | 98.34% | 77.06% | −6.75% |
+| FF Pretrained | 89.79% | 61.06% | **−22.75%** 🔴 |
 
-**Conclusion: FF pretrained weights are harmful to transfer.** This is because FF's layer-wise isolated training results in features lacking cross-layer consistency.
+**Conclusion: FF pretrained weights hurt transfer learning.** FF's label-embedding design creates features strongly tied to source task labels, making them poorly transferable.
 
 <details>
 <summary>📊 View Transfer Comparison</summary>
@@ -176,13 +176,13 @@ FF的层间信息流几乎为零，这是迁移学习失败的根本原因。
 
 MNIST → Fashion-MNIST 迁移实验：
 
-| 方法 | 迁移准确率 | 与随机初始化比较 |
-|------|-----------|------------------|
-| 随机初始化 | **80.60%** | 基准 |
-| BP预训练 | 73.19% | −7.41% |
-| FF预训练 | 13.47% | **−67.13%** 🔴 |
+| 方法 | 源任务准确率 | 迁移准确率 | 与随机初始化比较 |
+|------|-------------|-----------|------------------|
+| 随机初始化 | N/A | **83.81%** | 基准 |
+| BP预训练 | 98.34% | 77.06% | −6.75% |
+| FF预训练 | 89.79% | 61.06% | **−22.75%** 🔴 |
 
-**结论：FF预训练的权重对迁移有害。** 这是因为FF的层级隔离训练导致特征缺乏跨层一致性。
+**结论：FF预训练的权重对迁移有害。** FF的label-embedding设计导致特征与源任务标签强绑定，迁移性差。
 
 <details>
 <summary>📊 查看迁移学习对比</summary>
