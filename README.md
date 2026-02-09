@@ -2,267 +2,163 @@
 
 <div align="center">
 
-**[English](#english) | [中文](#中文)**
+**Deep Investigation into FF Algorithm: Improvements, Transfer Learning & Bio-Inspired Variants**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
+
+[English](#key-findings) | [中文](#核心发现)
+
+<img src="figures/transfer_hero.png" width="800">
+
+*CwC-FF achieves 89% transfer accuracy - the only model that beats random initialization!*
 
 </div>
 
 ---
 
-<a name="english"></a>
-## English Version
+## Key Findings
 
-### Core Findings
+### 🏆 1. CwC-FF: Best Transfer Learning Performance
 
-#### 1. CwC-FF: Revolutionary Architecture Without Negative Samples
+**Channel-wise Competitive FF achieves remarkable transfer learning results:**
 
-| Model | MNIST Accuracy | Negative Samples | Architecture |
-|-------|----------------|------------------|--------------|
-| Standard FF (MLP) | 93.15% | Required | Fully Connected |
-| **CwC-FF (CNN)** | **98.75%** | **Not Required** | Channel Competition |
-
-**CwC-FF eliminates negative samples entirely through channel competition, while improving accuracy by 5.6%.**
-
-<details>
-<summary>📈 View CwC-FF Learning Curve</summary>
-
-![CwC-FF Learning Curve](./results/cwc_ff_learning_curve.png)
-
-</details>
-
-#### 2. Catastrophic Layer Disconnection
-
-FF's inter-layer information flow is nearly zero - the root cause of transfer learning failure.
-
-| Metric | FF | BP | Gap |
-|--------|----|----|-----|
-| Layer 0 ↔ Layer 2 CKA | **0.025** | 0.39 | 15.6× |
-| Avg Inter-layer Coherence | 0.264 | 0.592 | 2.2× |
-
-<details>
-<summary>🔥 View CKA Heatmap</summary>
-
-![CKA Heatmap](./results/cka_heatmap.png)
-
-</details>
-
-#### 3. Counter-intuitive Transfer Learning Discovery
-
-MNIST → Fashion-MNIST transfer:
-
-| Method | Source Acc | Transfer Acc | vs Random Init |
-|--------|------------|--------------|----------------|
-| Random Init | N/A | **83.81%** | Baseline |
-| BP Pretrained | 98.34% | 77.06% | −6.75% |
-| FF Pretrained | 89.79% | 61.06% | **−22.75%** 🔴 |
-
-**Conclusion: FF pretrained weights hurt transfer learning.** FF's label-embedding design creates features strongly tied to source task labels, making them poorly transferable.
-
-<details>
-<summary>📊 View Transfer Comparison</summary>
-
-![Transfer Comparison](./results/transfer_comparison.png)
-
-</details>
-
----
-
-### Implementations
-
-#### Models (4 types)
-
-| Model | File | Description | Status |
-|-------|------|-------------|--------|
-| **FF Baseline** | `models/ff_correct.py` | Corrected standard FF | ✅ 93.15% |
-| **Layer Collab** | `models/layer_collab_ff.py` | Layer Collaboration (AAAI 2024) | ✅ |
-| **PFF** | `models/pff.py` | Predictive FF, dual-circuit | ✅ |
-| **CwC-FF** | `models/cwc_ff.py` | Channel-wise Competitive FF | ✅ 98.75% |
-
-#### Negative Sample Strategies (10 types)
-
-| Strategy | Requires Labels | Description |
-|----------|-----------------|-------------|
-| `label_embedding` | ✓ | Hinton's original: embed label in pixels |
-| `class_confusion` | ✓ | Correct image + wrong label |
-| `random_noise` | ✗ | Pure random noise |
-| `image_mixing` | ✗ | Pixel-wise image mixing |
-| `self_contrastive` | ✗ | SCFF: self-contrastive (Nature 2025) |
-| `masking` | ✗ | Random/block/patch masking |
-| `layer_wise` | ✗ | Layer-adaptive negative samples |
-| `adversarial` | ✗ | FGSM/PGD adversarial perturbation |
-| `hard_mining` | ✓ | Hard negative mining |
-| `mono_forward` | - | No-negative variant (VICReg) |
-
----
-
-### Critical Bug Fixes
-
-| Bug | Wrong | Correct | Impact |
-|-----|-------|---------|--------|
-| **Goodness calculation** | `sum(dim=1)` | `mean(dim=1)` | Severe |
-| **Label embedding value** | Fixed `1.0` | `x.max()` | Severe |
-| **Training mode** | mini-batch, simultaneous | full-batch, layer-by-layer greedy | Severe |
-| **SCFF input processing** | addition `x + x` | concatenation `cat([x, x])` | Severe |
-
-**Accuracy after fixes: 38% → 93%**
-
----
-
-### Quick Start
-
-```bash
-# Install
-cd ff-research
-python -m venv venv
-source venv/bin/activate
-pip install torch torchvision matplotlib seaborn
-
-# Run baseline (93% accuracy)
-python experiments/ff_baseline.py
-
-# Run CwC-FF (98.75% accuracy, no negative samples)
-python experiments/cwc_full_test.py
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Transfer Learning Results                 │
+│                   MNIST → Fashion-MNIST                      │
+├─────────────────┬──────────────┬──────────────┬─────────────┤
+│ Model           │ Source (MNIST)│ Transfer     │ vs Random   │
+├─────────────────┼──────────────┼──────────────┼─────────────┤
+│ 🥇 CwC-FF       │    98.71%    │   89.05%     │   +5.24%    │
+│ Random Init     │      -       │   83.81%     │   baseline  │
+│ BP Pretrained   │    98.34%    │   77.06%     │   -6.75%    │
+│ Standard FF     │    89.79%    │   61.06%     │  -22.75%    │
+└─────────────────┴──────────────┴──────────────┴─────────────┘
 ```
 
----
+> **Key Insight**: CwC-FF is the ONLY model that beats random initialization in transfer learning, achieving 89% on Fashion-MNIST with features learned from MNIST.
 
-### Our Unique Contributions
+<p align="center">
+<img src="figures/transfer_comparison.png" width="700">
+</p>
 
-1. **First to test Layer Collaboration for transfer learning** → Proved ineffective
-2. **First to quantify FF's "layer disconnection" with CKA** → L0-L2 CKA = 0.025
-3. **First to prove FF pretrained weights are "harmful"** → 67% worse than random
+### 📊 2. Layer Collaboration Improves FF
 
----
+**Best configuration: γ=0.7, mode=all → 91.56% accuracy**
 
-<a name="中文"></a>
-## 中文版本
-
-### 核心发现
-
-#### 1. CwC-FF: 无需负样本的革命性架构
-
-| 模型 | MNIST准确率 | 负样本 | 架构 |
-|------|------------|--------|------|
-| 标准FF (MLP) | 93.15% | 需要 | 全连接 |
-| **CwC-FF (CNN)** | **98.75%** | **不需要** | 通道竞争 |
-
-**CwC-FF 通过通道竞争机制完全消除负样本需求，同时准确率提升5.6%。**
-
-<details>
-<summary>📈 查看 CwC-FF 学习曲线</summary>
-
-![CwC-FF Learning Curve](./results/cwc_ff_learning_curve.png)
-
-</details>
-
-#### 2. 层断连现象 (Catastrophic Layer Disconnection)
-
-FF的层间信息流几乎为零，这是迁移学习失败的根本原因。
-
-| 度量 | FF | BP | 差距 |
-|------|----|----|------|
-| Layer 0 ↔ Layer 2 CKA | **0.025** | 0.39 | 15.6× |
-| 平均层间一致性 | 0.264 | 0.592 | 2.2× |
-
-<details>
-<summary>🔥 查看 CKA 热力图</summary>
-
-![CKA Heatmap](./results/cka_heatmap.png)
-
-</details>
-
-#### 3. 迁移学习的反直觉发现
-
-MNIST → Fashion-MNIST 迁移实验：
-
-| 方法 | 源任务准确率 | 迁移准确率 | 与随机初始化比较 |
-|------|-------------|-----------|------------------|
-| 随机初始化 | N/A | **83.81%** | 基准 |
-| BP预训练 | 98.34% | 77.06% | −6.75% |
-| FF预训练 | 89.79% | 61.06% | **−22.75%** 🔴 |
-
-**结论：FF预训练的权重对迁移有害。** FF的label-embedding设计导致特征与源任务标签强绑定，迁移性差。
-
-<details>
-<summary>📊 查看迁移学习对比</summary>
-
-![Transfer Comparison](./results/transfer_comparison.png)
-
-</details>
-
----
-
-### 实现清单
-
-#### 模型架构 (4种)
-
-| 模型 | 文件 | 描述 | 状态 |
-|------|------|------|------|
-| **FF Baseline** | `models/ff_correct.py` | 修正后的标准FF | ✅ 93.15% |
-| **Layer Collab** | `models/layer_collab_ff.py` | 层间协同 (AAAI 2024) | ✅ |
-| **PFF** | `models/pff.py` | 预测性FF，双回路架构 | ✅ |
-| **CwC-FF** | `models/cwc_ff.py` | 通道竞争FF，无需负样本 | ✅ 98.75% |
-
-#### 负样本策略 (10种)
-
-| 策略 | 需要标签 | 描述 |
-|------|----------|------|
-| `label_embedding` | ✓ | Hinton原版：标签嵌入像素 |
-| `class_confusion` | ✓ | 正确图像+错误标签 |
-| `random_noise` | ✗ | 纯随机噪声 |
-| `image_mixing` | ✗ | 两图像素混合 |
-| `self_contrastive` | ✗ | SCFF：自对比学习 (Nature 2025) |
-| `masking` | ✗ | 随机/块/patch遮罩 |
-| `layer_wise` | ✗ | 层自适应负样本 |
-| `adversarial` | ✗ | FGSM/PGD对抗扰动 |
-| `hard_mining` | ✓ | 困难负样本挖掘 |
-| `mono_forward` | - | 无负样本变体 (VICReg) |
-
----
-
-### 关键Bug修复
-
-| 问题 | 错误实现 | 正确实现 | 影响 |
-|------|---------|---------|------|
-| **Goodness计算** | `sum(dim=1)` | `mean(dim=1)` | 严重 |
-| **标签嵌入值** | 固定 `1.0` | `x.max()` | 严重 |
-| **训练方式** | mini-batch, 同时训练 | full-batch, layer-by-layer greedy | 严重 |
-| **SCFF输入处理** | 加法 `x + x` | 拼接 `cat([x, x])` | 严重 |
-
-**修复后准确率：38% → 93%**
-
----
-
-### 快速开始
-
-```bash
-# 安装
-cd ff-research
-python -m venv venv
-source venv/bin/activate
-pip install torch torchvision matplotlib seaborn
-
-# 运行基线实验 (93% 准确率)
-python experiments/ff_baseline.py
-
-# 运行CwC-FF (98.75% 准确率，无需负样本)
-python experiments/cwc_full_test.py
+```
+Standard FF (baseline)    ████████████████████░░░░  90.38%
+Layer Collab (γ=0.3)      █████████████████████░░░  90.79%
+Layer Collab (γ=0.5)      █████████████████████░░░  91.14%
+Layer Collab (γ=0.7)      ██████████████████████░░  91.56%  ← Best
+Layer Collab (γ=1.0)      █████████████████████░░░  90.72%
 ```
 
+<p align="center">
+<img src="figures/layer_collab_heatmap.png" width="700">
+</p>
+
+### 🔬 3. Multi-Dimensional Model Comparison
+
+<p align="center">
+<img src="figures/radar_comparison.png" width="600">
+</p>
+
+### ⚠️ 4. Standard FF Transfer Learning Paradox
+
+**Surprising discovery: Pretrained features hurt transfer performance**
+
+| Method | Transfer Accuracy | Analysis |
+|--------|-------------------|----------|
+| Random Init | **83.81%** | Best - uncommitted features |
+| BP Pretrained | 77.06% | Task-specific overfitting |
+| FF Pretrained | 61.06% | Label-embedding hurts generalization |
+
+> **Why?** FF's label-embedding design (embedding labels in first 10 pixels) creates features strongly tied to source task labels, making them poorly transferable.
+
+<p align="center">
+<img src="figures/key_insight.png" width="700">
+</p>
+
+### 🧠 5. Bio-Inspired FF Models
+
+Based on latest neuroscience findings (2024-2025):
+
+| Model | Based On | Status | Notes |
+|-------|----------|--------|-------|
+| **Dendritic FF** | Wright et al. Science 2025 | 🔄 Pending | Needs A100 (55GB memory) |
+| **Three-Factor FF** | Neuromodulation research | 🔄 Pending | Ready for A100 |
+| **Prospective FF** | Nature Neuroscience 2024 | 🔄 Running | Infer-then-consolidate |
+| **PCL-FF** | Nature Comm 2025 | ⚠️ Failed | Dead neurons issue |
+
+> **PCL-FF Note**: Predictive coding constraints caused 100% neuron death. Requires hyperparameter tuning.
+
 ---
 
-### 我们的独特贡献
+## Results Summary
 
-1. **首次测试Layer Collaboration的迁移能力** → 证明无效
-2. **首次用CKA量化FF的"层断连"** → L0-L2 CKA=0.025
-3. **首次证明FF预训练权重"有害"** → 比随机差67%
+### Negative Sample Strategies
+
+| Strategy | Uses Labels | Test Accuracy | Notes |
+|----------|-------------|---------------|-------|
+| label_embedding | ✓ | 93.15% | Hinton's original (1000 epochs) |
+| image_mixing | ✗ | 77.2%* | Best label-free (*Linear Probe) |
+| class_confusion | ✓ | 65.8% | 200 epochs only |
+| masking | ✗ | 21.0%* | Random 50% masking |
+| random_noise | ✗ | 13.7%* | Matched statistics noise |
+
+> Note: Results marked with * use Linear Probe evaluation for label-free strategies
+
+<p align="center">
+<img src="figures/strategy_comparison.png" width="700">
+</p>
+
+### Architecture Comparison
+
+| Model | MNIST | Architecture | Key Feature |
+|-------|-------|--------------|-------------|
+| Standard FF | 93.15% | MLP [784,500,500] | Label embedding |
+| CwC-FF | 98.75% | CNN | No negative samples needed |
+| Layer Collab | 91.56% | MLP + γ=0.7 | Inter-layer information flow |
 
 ---
 
-### 核心洞察
+## Critical Implementation Notes
 
-> **FF的层级隔离不是bug，是feature——但这个feature让它无法迁移。解决方案不是"加协同"，而是重新设计学习目标（如CwC-FF的通道竞争）。**
+### ✅ Correct Implementation
+
+```python
+# Goodness calculation - MUST use mean, not sum!
+def goodness(self, x):
+    return (x ** 2).mean(dim=1)  # ✅ Correct
+
+# Label embedding - MUST use x.max(), not 1.0!
+def overlay_label(x, y):
+    x[:, :10] = 0
+    x[range(len(y)), y] = x.max()  # ✅ Correct
+```
+
+### ❌ Common Bugs
+
+```python
+# Bug 1: Using sum instead of mean
+return (x ** 2).sum(dim=1)  # ❌ Wrong - causes 38% accuracy drop
+
+# Bug 2: Using fixed value 1.0
+x[range(len(y)), y] = 1.0  # ❌ Wrong - label signal too weak
+```
+
+### Training Requirements
+
+- **Epochs**: 500-1000 per layer for convergence
+- **Batch Size**: Full batch (50000) recommended
+- **Training**: Layer-by-layer greedy (train each layer to convergence)
+
+<p align="center">
+<img src="figures/training_dynamics.png" width="800">
+</p>
 
 ---
 
@@ -270,26 +166,98 @@ python experiments/cwc_full_test.py
 
 ```
 ff-research/
-├── models/                    # Model implementations
-│   ├── ff_correct.py         # Corrected FF baseline (93%)
-│   ├── layer_collab_ff.py    # Layer Collaboration FF
-│   ├── pff.py                # Predictive FF (dual-circuit)
-│   └── cwc_ff.py             # Channel-wise Competitive FF (98.75%)
-├── negative_strategies/       # 10 negative sample strategies
-├── experiments/              # Experiment scripts
-├── analysis/                 # CKA, Linear Probe
-├── results/                  # Results & visualizations
-└── repos/                    # Reference implementations
+├── models/
+│   ├── ff_correct.py         # Corrected standard FF (93.15%)
+│   ├── cwc_ff.py             # CwC-FF without negative samples (98.75%)
+│   ├── layer_collab_ff.py    # Layer Collaboration (91.56%)
+│   ├── dendritic_ff.py       # Bio-inspired: Apical/Basal
+│   ├── three_factor_ff.py    # Bio-inspired: Neuromodulation
+│   ├── prospective_ff.py     # Bio-inspired: Prospective Config
+│   └── pcl_ff.py             # Bio-inspired: Predictive Coding
+├── experiments/
+│   ├── strategy_comparison_full.py
+│   ├── transfer_comparison.py
+│   └── [bio-inspired experiments]
+├── negative_strategies/      # 10+ negative sample strategies
+├── results/                  # Experiment results (JSON)
+└── ff-a100-package/         # A100 training package
 ```
 
-## References
+---
 
-- Hinton (2022). [The Forward-Forward Algorithm](https://arxiv.org/abs/2212.13345)
-- Lorberbom et al. (2024). [Layer Collaboration in FF](https://ojs.aaai.org/index.php/AAAI/article/view/29307). AAAI
-- Ororbia & Mali (2023). [Predictive Forward-Forward](https://arxiv.org/abs/2301.01452)
-- Papachristodoulou et al. (2024). [CwC-FF](https://arxiv.org/abs/2312.12668). AAAI
-- Chen et al. (2025). [Self-Contrastive FF](https://www.nature.com/articles/s41467-025-61037-0). Nature Comm.
+## Quick Start
+
+```bash
+# Clone and setup
+git clone https://github.com/your-repo/ff-research.git
+cd ff-research
+pip install torch torchvision numpy tqdm matplotlib
+
+# Run experiments
+python experiments/strategy_comparison_full.py --epochs 1000
+python experiments/transfer_comparison.py --epochs 500
+```
+
+---
+
+## Citation
+
+If you use this research, please cite:
+
+```bibtex
+@misc{ff-research-2026,
+  title={Forward-Forward Algorithm Research: Transfer Learning and Bio-Inspired Variants},
+  author={Parafee},
+  year={2026},
+  url={https://github.com/your-repo/ff-research}
+}
+```
+
+---
+
+<a name="核心发现"></a>
+## 中文版本
+
+### 🏆 1. CwC-FF: 最佳迁移学习效果
+
+**通道竞争FF在迁移学习中表现最佳：**
+
+| 模型 | 源任务(MNIST) | 迁移(FMNIST) | vs随机初始化 |
+|-----|--------------|--------------|-------------|
+| 🥇 CwC-FF | 98.71% | **89.05%** | +5.24% |
+| 随机初始化 | - | 83.81% | 基准 |
+| BP预训练 | 98.34% | 77.06% | -6.75% |
+| 标准FF | 89.79% | 61.06% | -22.75% |
+
+### 📊 2. 层协作提升FF性能
+
+最佳配置：γ=0.7, mode=all → **91.56%** 准确率
+
+### ⚠️ 3. 迁移学习悖论
+
+**惊人发现：预训练特征反而损害迁移性能！**
+
+原因：FF的标签嵌入设计（将标签嵌入前10个像素）使特征与源任务标签强绑定，难以迁移。
+
+### 🔬 3. 多维度模型对比
+
+<p align="center">
+<img src="figures/radar_comparison.png" width="500">
+</p>
+
+### 🧠 4. 生物启发FF模型
+
+基于最新神经科学发现（2024-2025）：
+
+| 模型 | 基于 | 状态 |
+|-----|------|------|
+| **树突FF** | Wright et al. Science 2025 | 🔄 待运行(需A100) |
+| **三因子FF** | 神经调质机制 | 🔄 待运行 |
+| **前瞻FF** | Nature Neuroscience 2024 | 🔄 运行中 |
+| **预测编码FF** | Nature Comm 2025 | ⚠️ 失败(神经元死亡) |
+
+---
 
 ## License
 
-MIT — [Shuaizhi Cheng](https://github.com/koriyoshi2041)
+MIT License - see [LICENSE](LICENSE) for details.
