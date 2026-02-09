@@ -82,6 +82,14 @@ Layer Collab (γ=1.0)      █████████████████�
 <img src="figures/key_insight.png" width="700">
 </p>
 
+**t-SNE Visualization: FF vs BP Feature Representations**
+
+<p align="center">
+<img src="figures/tsne_comparison.png" width="900">
+</p>
+
+> The t-SNE plot reveals why standard FF transfers poorly: FF features (left) show scattered, poorly-separated clusters on Fashion-MNIST, while BP features (right) form more coherent groupings. This confirms FF's label-embedding creates task-specific rather than generalizable representations.
+
 ### 🧠 5. Bio-Inspired FF Models
 
 Based on latest neuroscience findings (2024-2025):
@@ -122,6 +130,14 @@ Based on latest neuroscience findings (2024-2025):
 | Standard FF | 93.15% | MLP [784,500,500] | Label embedding |
 | CwC-FF | 98.75% | CNN | No negative samples needed |
 | Layer Collab | 91.56% | MLP + γ=0.7 | Inter-layer information flow |
+
+### PFF (Predictive Forward-Forward) Generations
+
+<p align="center">
+<img src="figures/pff_samples.png" width="600">
+</p>
+
+> PFF can generate samples by running the network "backwards". Top rows show random samples, bottom row shows class-conditioned generation (3s and 5s).
 
 ---
 
