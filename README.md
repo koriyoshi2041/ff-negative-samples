@@ -174,3 +174,63 @@ ff-research/
 **Repository**: [github.com/koriyoshi2041/ff-negative-samples](https://github.com/koriyoshi2041/ff-negative-samples)
 
 </div>
+
+---
+
+## Why FF Hasn't Become the New Paradigm
+
+Despite its biological plausibility, FF faces fundamental challenges that prevent mainstream adoption:
+
+<p align="center">
+<img src="figures/why_ff_not_paradigm.png" width="900">
+</p>
+
+### The Three Barriers
+
+| Barrier | Evidence | Severity |
+|---------|----------|:--------:|
+| **Performance Gap** | FF 94.5% vs BP 99.2% on MNIST | 🔴 Critical |
+| **Training Inefficiency** | FF needs 60× more epochs than BP | 🔴 Critical |
+| **Transfer Failure** | FF features transfer worse than random init | 🔴 Critical |
+
+### Our Analysis
+
+**1. The Label Embedding Trap**
+FF's design embeds class labels directly into input pixels. This creates representations that are:
+- Tightly coupled to source task labels
+- Unable to generalize across domains
+- Fundamentally different from how biological brains encode information
+
+**2. The Efficiency Problem**
+```
+BP:  50 epochs  → 99.2% accuracy
+FF:  3000 epochs → 94.5% accuracy (60× slower, still worse)
+```
+
+**3. The Scalability Question**
+Almost all FF research is limited to MNIST. Why?
+- Full-batch training doesn't scale
+- Layer-wise greedy training is slow
+- No clear path to ImageNet-scale
+
+### What Would Make FF Viable?
+
+Based on our experiments:
+
+| Solution | Evidence | Status |
+|----------|----------|--------|
+| **Remove label embedding** | CwC-FF achieves 89% transfer | ✅ Works |
+| **Add global modulation** | Three-Factor top-down +1.5% | ⚠️ Marginal |
+| **Hybrid FF-BP** | Not tested | ❓ Unknown |
+
+### Conclusion
+
+FF is a beautiful idea—local learning without backprop. But until we solve:
+1. The performance gap (5%+ on MNIST alone)
+2. The transfer problem (solved by CwC-FF, but that changes FF fundamentally)
+3. The efficiency problem (no solution yet)
+
+...FF will remain a research curiosity, not a practical alternative to backpropagation.
+
+**The path forward**: CwC-FF shows promise by abandoning label embedding. Future work should focus on efficient, label-free variants that preserve FF's biological plausibility while closing the performance gap.
+
