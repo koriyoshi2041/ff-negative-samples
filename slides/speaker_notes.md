@@ -1,7 +1,7 @@
 # Forward-Forward Algorithm: Speaker Notes
 # Transfer Learning Paradox and Bio-Inspired Solutions
 
-**Presentation Duration:** ~20 minutes
+**Presentation Duration:** ~25 minutes (27 slides)
 **Target Audience:** ML researchers, neuroscience-inspired computing enthusiasts
 
 ---
@@ -10,731 +10,861 @@
 
 ### English
 
-Welcome everyone. Today I'm going to share something that genuinely surprised us during our research.
+Welcome everyone. Today I'm presenting our systematic investigation into why the Forward-Forward algorithm—Hinton's biologically plausible alternative to backpropagation—hasn't become the new paradigm despite its elegant design.
 
-We've been investigating the Forward-Forward algorithm - Hinton's biologically plausible alternative to backpropagation. And we discovered a paradox that I think gets at something fundamental about how neural networks learn.
-
-The question we started with was simple: Can a brain-inspired learning algorithm actually learn transferable features? The answer... well, it's complicated, and that's what makes this interesting.
-
-*[Pause for 2-3 seconds to let the tension build]*
-
-Let me take you through what we found.
+We'll explore the transfer learning paradox, test bio-inspired variants, and reveal the solution that actually works.
 
 ### 中文
 
-欢迎大家。今天我要分享的是我们研究中发现的一个真正令人惊讶的现象。
+欢迎大家。今天我将介绍我们对 Forward-Forward 算法的系统性研究——这是 Hinton 提出的生物学上合理的反向传播替代方案——为什么尽管设计优雅，它却没有成为新的范式。
 
-我们一直在研究 Forward-Forward 算法——Hinton 提出的一种生物学上合理的反向传播替代方案。我们发现了一个悖论，我认为它触及了神经网络学习的一些根本性问题。
-
-我们最初的问题很简单：一个受大脑启发的学习算法能否真正学到可迁移的特征？答案......嗯，很复杂，这正是它有趣的地方。
-
-*[停顿2-3秒，让悬念积累]*
-
-让我带大家看看我们的发现。
+我们将探索迁移学习悖论、测试生物启发的变体，并揭示真正有效的解决方案。
 
 ---
 
-## Slide 2: Motivation - Why Biological Plausibility?
+## Slide 2: Our Key Finding (Hero Figure)
 
 ### English
 
-So why do we care about biologically plausible learning?
+*[Point to the figure]*
 
-Backpropagation works incredibly well - we all know that. But it has some serious issues from a biological standpoint.
+Let me start with our key finding. This figure shows the transfer learning results from MNIST to Fashion-MNIST.
 
-First, the weight transport problem. Backprop needs the exact same weights going backward as going forward. Neurons in your brain don't do that - they don't have some magical symmetric connection going back.
+Notice that CwC-FF—Channel-wise Competitive FF—achieves 89% transfer accuracy. This is the only biologically plausible method that outperforms random initialization at 72%.
 
-Second, the timing issue. Backprop waits for a complete forward pass, stores everything, then runs the gradient backward. Real neurons don't wait - they're firing and learning continuously.
-
-Third - and this is big for industry - backprop needs to store all intermediate activations. That means massive memory costs. Your brain operates on about 20 watts. Training GPT-4 took... considerably more.
-
-*[Small pause for audience reaction]*
-
-Hinton proposed Forward-Forward in late 2022 as an alternative. The idea: what if we could learn with just forward passes?
+Standard FF? Only 54%—that's WORSE than random. We'll explore why this happens and how to fix it.
 
 ### 中文
 
-那么我们为什么要关注生物学上合理的学习呢？
+*[指向图片]*
 
-反向传播效果非常好——这我们都知道。但从生物学角度看，它有一些严重的问题。
+让我从我们的关键发现开始。这张图显示了从 MNIST 到 Fashion-MNIST 的迁移学习结果。
 
-首先是权重传输问题。反向传播需要反向使用完全相同的权重。你大脑中的神经元不会这样做——它们没有某种神奇的对称连接返回去。
+注意 CwC-FF——通道竞争 FF——达到了 89% 的迁移准确率。这是唯一一个超过随机初始化 72% 的生物学合理方法。
 
-第二是时序问题。反向传播要等待完整的前向传递，存储所有内容，然后反向运行梯度。真正的神经元不会等待——它们持续地激发和学习。
-
-第三——这对工业界来说很重要——反向传播需要存储所有中间激活值。这意味着巨大的内存成本。你的大脑大约用20瓦运行。训练GPT-4花费的......要多得多。
-
-*[小停顿让观众反应]*
-
-Hinton 在2022年底提出了 Forward-Forward 作为替代方案。核心想法：如果我们只用前向传递就能学习呢？
+标准 FF 呢？只有 54%——这比随机还差。我们将探索为什么会这样以及如何修复它。
 
 ---
 
-## Slide 3: The Forward-Forward Algorithm
+## Slide 3: Outline
 
 ### English
 
-Let me explain how Forward-Forward works. It's elegantly simple.
-
-Instead of one forward pass and one backward pass, you do two forward passes. That's it.
-
-The first pass uses real data - we call this the positive pass. We want the network to produce high activation when it sees real data.
-
-The second pass uses fake data - the negative pass. We want the network to produce low activation for fake data.
-
-The learning signal comes from something called "goodness" - essentially the sum of squared activations in each layer. Each layer learns locally: increase goodness for positive samples, decrease it for negative samples.
-
-There's a threshold - typically around 2.0 - that separates positive from negative.
-
-*[Point to the visualization if there is one]*
-
-The beautiful thing: each layer learns independently. No need to propagate errors backward through the whole network. This is what makes it biologically plausible.
+Here's our roadmap. We'll start with the problem—why does FF matter and what barriers does it face? Then we'll explain how FF works, show our experimental results, explore bio-inspired variants that mostly failed, present the CwC-FF solution, and conclude with insights for the field.
 
 ### 中文
 
-让我解释一下 Forward-Forward 是如何工作的。它优雅而简单。
-
-与其做一次前向传递和一次后向传递，你只做两次前向传递。就是这样。
-
-第一次传递使用真实数据——我们称之为正向传递。我们希望网络在看到真实数据时产生高激活。
-
-第二次传递使用假数据——负向传递。我们希望网络对假数据产生低激活。
-
-学习信号来自于一个叫做"goodness"的东西——本质上是每层激活值的平方和。每层独立学习：对正样本增加 goodness，对负样本减少 goodness。
-
-有一个阈值——通常在2.0左右——来分隔正样本和负样本。
-
-*[如果有可视化就指向它]*
-
-美妙之处在于：每层独立学习。不需要通过整个网络反向传播误差。这正是它在生物学上合理的原因。
+这是我们的路线图。我们将从问题开始——为什么 FF 重要以及它面临什么障碍？然后我们将解释 FF 如何工作，展示我们的实验结果，探索大多失败的生物启发变体，介绍 CwC-FF 解决方案，并以对该领域的洞察作为结论。
 
 ---
 
-## Slide 4: Our Research Questions
+## Slide 4: The Three Barriers (Figure)
 
 ### English
 
-So here's what we set out to investigate.
+*[Point to the figure]*
 
-We had two main research questions. First: which negative sampling strategy works best? There are many ways to create fake data - Hinton originally just embedded a wrong label, but you could also mix images, add noise, use contrastive methods...
+Despite Hinton's prestige and FF's elegant design, three barriers have prevented its adoption:
 
-Second, and this turned out to be the bigger surprise: how well do FF features transfer? In the backprop world, we know features learned on ImageNet transfer beautifully to other tasks. Does FF do the same?
+1. **Performance Gap**: FF achieves 94.5% vs BP's 99.2% on MNIST—a 4.7% gap that matters at scale
+2. **Efficiency**: FF needs 30-240× more compute than backprop
+3. **Transfer Failure**: The killer—FF features transfer WORSE than random
 
-*[Let this sink in]*
-
-We expected FF might be a bit worse than backprop at transfer. We did NOT expect what we actually found.
+Today we'll focus on understanding and solving the transfer problem.
 
 ### 中文
 
-这就是我们开始研究的问题。
+*[指向图片]*
 
-我们有两个主要研究问题。第一：哪种负样本策略效果最好？有很多方法可以创建假数据——Hinton 最初只是嵌入一个错误的标签，但你也可以混合图像、添加噪声、使用对比方法……
+尽管 Hinton 享有盛誉且 FF 设计优雅，三个障碍阻止了它的采用：
 
-第二，这结果是更大的惊喜：FF 特征的迁移效果如何？在反向传播的世界里，我们知道在 ImageNet 上学到的特征可以漂亮地迁移到其他任务。FF 也是这样吗？
+1. **性能差距**：FF 在 MNIST 上达到 94.5%，而 BP 达到 99.2%——在规模化时这 4.7% 的差距很重要
+2. **效率**：FF 需要比反向传播多 30-240 倍的计算
+3. **迁移失败**：致命问题——FF 特征迁移比随机还差
 
-*[让这个问题沉淀一下]*
-
-我们预期 FF 在迁移学习上可能比反向传播差一点。我们没有预料到我们实际发现的结果。
+今天我们将专注于理解和解决迁移问题。
 
 ---
 
-## Slide 5: Negative Sampling Results - Simple is Better
+## Slide 5: The Backpropagation Dilemma
 
 ### English
 
-Let's start with the negative sampling results.
+Why do we even care about alternatives to backpropagation?
 
-We tested 10 different strategies - everything from Hinton's original label embedding, to sophisticated contrastive methods, to adversarial approaches.
+Backprop works incredibly well—we all know that. But it has fundamental problems from a biological standpoint.
 
-*[Point to the results table]*
+*[Go through the three points]*
 
-And the winner? Hinton's original method. Just take the correct image, embed the wrong label. That's it.
+1. **Weight Transport**: BP needs symmetric forward/backward weights. Neurons don't have this.
+2. **Global Errors**: BP propagates errors through the entire network. Neurons only have local information.
+3. **Two-Phase**: BP requires forward pass, storage, then backward pass. Real neurons learn continuously.
 
-The sophisticated methods - mixing images, adding noise, adversarial samples - they either matched performance or were worse.
-
-This tells us something important: for supervised FF learning, the negative sample doesn't need to be sophisticated. It just needs to be "wrong" in a consistent way that the network can learn to recognize.
-
-*[Brief pause]*
-
-But here's the thing - this result has a dark side, which we'll get to in a moment.
+Hinton's solution? Replace the forward and backward passes with two forward passes. No backward pass needed at all.
 
 ### 中文
 
-让我们从负样本结果开始。
+为什么我们要关心反向传播的替代方案？
 
-我们测试了10种不同的策略——从 Hinton 的原始标签嵌入，到复杂的对比方法，再到对抗性方法。
+反向传播效果非常好——我们都知道。但从生物学角度来看，它有根本性的问题。
 
-*[指向结果表格]*
+*[逐一讲解三个要点]*
 
-获胜者是？Hinton 的原始方法。只需拿正确的图像，嵌入错误的标签。就是这样。
+1. **权重传输**：BP 需要对称的前向/后向权重。神经元没有这个。
+2. **全局误差**：BP 通过整个网络传播误差。神经元只有局部信息。
+3. **两阶段**：BP 需要前向传递、存储，然后后向传递。真正的神经元是连续学习的。
 
-复杂的方法——混合图像、添加噪声、对抗性样本——它们要么性能相当，要么更差。
-
-这告诉我们一些重要的事情：对于监督式 FF 学习，负样本不需要很复杂。它只需要以一种网络可以学会识别的一致方式是"错误的"即可。
-
-*[短暂停顿]*
-
-但问题是——这个结果有一个阴暗面，我们马上就会讲到。
+Hinton 的解决方案？用两次前向传递替代前向和后向传递。完全不需要后向传递。
 
 ---
 
-## Slide 6: The Transfer Paradox - THIS IS THE KEY FINDING
+## Slide 6: The Forward-Forward Algorithm
 
 ### English
 
-*[Slow down here - this is the "wow" moment]*
+Let me explain how FF works. It's elegantly simple.
 
-Now here's where things get really interesting. And honestly, really troubling.
+*[Point to left column]*
 
-We ran standard transfer learning experiments. Train on one dataset, freeze the features, test on another. Classic protocol.
+Instead of forward+backward, you do two forward passes:
+- **Positive pass**: Real data with correct label → increase "goodness"
+- **Negative pass**: Real data with wrong label → decrease "goodness"
 
-Backprop baseline: features transfer well, as expected. Around 85% accuracy on the target task.
+The goodness function is just the mean of squared activations.
 
-Forward-Forward: 42%.
+*[Point to right column]*
 
-*[Pause for effect]*
+Here's the critical design choice: **label embedding**. FF embeds the class label directly into the first 10 pixels of the input.
 
-But here's the thing that really shocked us. We also tested random, untrained networks. Networks that never saw any data.
-
-Random network: 45%.
-
-*[Let this sink in for 3-4 seconds]*
-
-Let me say that again. Forward-Forward features transfer WORSE than random initialization. The network actively learned representations that are harmful for downstream tasks.
-
-This isn't "FF is a bit worse." This is "FF is fundamentally broken for transfer learning."
+For digit "3", pixel index 3 is set to the maximum value. This seems elegant, but—and this is crucial—it's the ROOT CAUSE of transfer failure.
 
 ### 中文
 
-*[这里放慢语速——这是"哇"的时刻]*
+让我解释 FF 是如何工作的。它优雅而简单。
 
-现在事情变得真正有趣了。说实话，也真的令人不安。
+*[指向左列]*
 
-我们进行了标准的迁移学习实验。在一个数据集上训练，冻结特征，在另一个数据集上测试。经典的实验方案。
+与前向+后向不同，你做两次前向传递：
+- **正向传递**：真实数据加正确标签 → 增加"goodness"
+- **负向传递**：真实数据加错误标签 → 减少"goodness"
 
-反向传播基线：特征迁移效果良好，正如预期。在目标任务上约85%的准确率。
+goodness 函数就是激活值平方的均值。
 
-Forward-Forward：42%。
+*[指向右列]*
 
-*[停顿以产生效果]*
+这是关键的设计选择：**标签嵌入**。FF 将类别标签直接嵌入到输入的前 10 个像素中。
 
-但真正让我们震惊的是这个。我们还测试了随机的、未经训练的网络。从未见过任何数据的网络。
-
-随机网络：45%。
-
-*[让这个信息沉淀3-4秒]*
-
-让我再说一遍。Forward-Forward 特征的迁移效果比随机初始化还要差。网络主动学习了对下游任务有害的表征。
-
-这不是"FF 差一点"。这是"FF 在迁移学习上根本就是坏的"。
+对于数字"3"，像素索引 3 被设置为最大值。这看起来很优雅，但——这是关键——这是迁移失败的根本原因。
 
 ---
 
-## Slide 7: Root Cause - The Label Embedding Problem
+## Slide 7: Research Questions
 
 ### English
 
-So we spent a lot of time figuring out why. And the answer lies in how labels are embedded.
+We set out to answer four research questions:
 
-*[Use a concrete example here]*
+1. **RQ1**: Which negative sampling strategy works best?
+2. **RQ2**: Can FF features transfer across tasks?
+3. **RQ3**: Why does standard FF transfer poorly?
+4. **RQ4**: Can bio-inspired variants improve FF?
 
-Think about this: In standard FF, you embed the label in the first 10 pixels of the image. A "0" might make pixel 0 bright. A "1" makes pixel 1 bright.
+*[Point to preview block]*
 
-Now imagine we're training on MNIST - handwritten digits. The network learns: "When pixel 0 is bright AND the image looks like a zero, that's positive."
-
-But then we transfer to Fashion-MNIST. Now pixel 0 being bright means "T-shirt." But the network has already associated "pixel 0 bright" with "round shape like the digit zero."
-
-*[Let this sink in]*
-
-The label embedding creates a shortcut. The network doesn't need to learn robust visual features. It just needs to learn: "Do the label pixels match the pattern I expect?" That's enough to get high goodness for positives and low for negatives.
-
-This is a classic shortcut learning problem, but it's baked into the core of how FF works.
+Spoiler alert: Standard FF achieves 94.5% on MNIST but transfers WORSE than random initialization!
 
 ### 中文
 
-所以我们花了很多时间弄清楚原因。答案在于标签是如何嵌入的。
+我们设定了四个研究问题：
 
-*[这里用一个具体的例子]*
+1. **RQ1**：哪种负样本策略效果最好？
+2. **RQ2**：FF 特征能否跨任务迁移？
+3. **RQ3**：为什么标准 FF 迁移效果差？
+4. **RQ4**：生物启发变体能否改进 FF？
 
-想想这个：在标准 FF 中，你把标签嵌入到图像的前10个像素中。"0"可能让像素0变亮。"1"让像素1变亮。
+*[指向预览块]*
 
-现在想象我们在 MNIST 上训练——手写数字。网络学习到："当像素0亮起并且图像看起来像零，那就是正样本。"
-
-但然后我们迁移到 Fashion-MNIST。现在像素0亮起意味着"T恤"。但网络已经将"像素0亮起"与"像数字零那样的圆形"关联起来了。
-
-*[让这个信息沉淀]*
-
-标签嵌入创造了一个捷径。网络不需要学习鲁棒的视觉特征。它只需要学习："标签像素是否与我期望的模式匹配？"这就足以让正样本获得高 goodness，负样本获得低 goodness。
-
-这是一个经典的捷径学习问题，但它被嵌入到 FF 工作的核心中。
+剧透：标准 FF 在 MNIST 上达到 94.5%，但迁移比随机初始化还差！
 
 ---
 
-## Slide 8: Bio-Inspired Attempts - We Tried Neuroscience
+## Slide 8: RQ1 - Negative Sampling (Figure)
 
 ### English
 
-At this point, we thought: maybe the problem is that FF isn't biologically plausible enough. Maybe we need to look at how real brains avoid these problems.
+*[Point to the figure]*
 
-So we went to the neuroscience literature. We implemented three biologically-inspired modifications.
+We tested 6 different negative sampling strategies, each trained for 1000 epochs per layer—a fair comparison.
 
-First: Three-Factor Learning. This comes from the neuromodulator literature. Real synapses are modulated by signals like dopamine and norepinephrine. We added a third factor to modulate the local learning signal.
+The results are clear: Hinton's original "wrong label" strategy wins at 94.5%. The more sophisticated strategies—hybrid mixing, noise augmentation, masking—all perform worse.
 
-Second: Prospective Forward-Forward. Based on predictive coding theory. The idea is to learn representations that predict future states, not just current classification.
-
-Third: Predictive Coding Light FF. Inspired by the predictive processing framework. The brain constantly predicts its inputs, and learning comes from prediction errors.
-
-*[Pause]*
-
-All of these are grounded in real neuroscience. All of them have been successful in other contexts.
+Simple is better for training. But remember, this will come back to bite us in transfer learning.
 
 ### 中文
 
-到这一点，我们想：也许问题在于 FF 还不够生物学合理。也许我们需要看看真正的大脑是如何避免这些问题的。
+*[指向图片]*
 
-所以我们查阅了神经科学文献。我们实现了三种受生物学启发的修改。
+我们测试了 6 种不同的负样本策略，每种在每层训练 1000 个 epoch——公平比较。
 
-第一：三因子学习。这来自神经调质文献。真正的突触受到多巴胺和去甲肾上腺素等信号的调节。我们添加了第三个因子来调节局部学习信号。
+结果很清楚：Hinton 的原始"错误标签"策略以 94.5% 获胜。更复杂的策略——混合混合、噪声增强、掩码——都表现更差。
 
-第二：前瞻性 Forward-Forward。基于预测编码理论。核心想法是学习预测未来状态的表征，而不仅仅是当前分类。
-
-第三：预测编码轻量版 FF。受预测处理框架启发。大脑不断预测其输入，学习来自预测误差。
-
-*[停顿]*
-
-所有这些都基于真实的神经科学。所有这些在其他情境中都是成功的。
+训练时简单更好。但记住，这在迁移学习中会反噬我们。
 
 ---
 
-## Slide 9: Three-Factor Learning Results
+## Slide 9: RQ1 - The 6 Strategies
 
 ### English
 
-Let's go through what happened with Three-Factor Learning.
+*[Walk through each strategy]*
 
-The idea is that learning should be modulated by a global signal - like dopamine in the brain. When something unexpected happens, dopamine spikes, and that tells all synapses "pay attention, this is important."
+Here are the 6 strategies we tested:
 
-We tried three modulation schemes:
-- Top-down: higher layers modulate lower layers
-- Bottom-up: input quality modulates all layers
-- Surprise-based: prediction error modulates learning
+1. **wrong_label**: Just swap the label—Hinton's original
+2. **class_confusion**: Different image, same label
+3. **same_class_diff_img**: Different image, wrong label
+4. **hybrid_mix**: Blend two images with wrong label
+5. **noise_augmented**: Add Gaussian noise
+6. **masked**: Random pixel masking
+
+The simple approach wins. Complex negative generation actually hurts learning.
+
+### 中文
+
+*[逐一讲解每种策略]*
+
+这是我们测试的 6 种策略：
+
+1. **wrong_label**：只交换标签——Hinton 的原始方法
+2. **class_confusion**：不同图像，相同标签
+3. **same_class_diff_img**：不同图像，错误标签
+4. **hybrid_mix**：混合两张图像加错误标签
+5. **noise_augmented**：添加高斯噪声
+6. **masked**：随机像素掩码
+
+简单方法获胜。复杂的负样本生成实际上会损害学习。
+
+---
+
+## Slide 10: RQ2 - The Transfer Paradox (Figure)
+
+### English
+
+*[Slow down here—this is the key finding]*
+
+Now here's where things get really interesting—and troubling.
+
+*[Point to the figure]*
+
+This is the transfer learning paradox visualized. We trained on MNIST, froze features, and tested on Fashion-MNIST.
+
+Standard FF: 54% transfer accuracy.
+Random initialization: 72% transfer accuracy.
+
+FF is WORSE than starting from scratch! The pretrained features actively hurt performance.
+
+### 中文
+
+*[这里放慢——这是关键发现]*
+
+现在事情变得真正有趣——也令人不安。
+
+*[指向图片]*
+
+这是可视化的迁移学习悖论。我们在 MNIST 上训练，冻结特征，在 Fashion-MNIST 上测试。
+
+标准 FF：54% 迁移准确率。
+随机初始化：72% 迁移准确率。
+
+FF 比从头开始还差！预训练的特征主动损害了性能。
+
+---
+
+## Slide 11: RQ2 - Transfer Results Table
+
+### English
+
+*[Walk through the table]*
+
+Let me show you the full comparison:
+
+- **CwC-FF**: 98.71% source, 89.05% transfer, +17.2% vs random
+- **Backprop**: 95.08% source, 75.49% transfer, +3.6% vs random
+- **Random**: 71.89% baseline
+- **Standard FF**: 89.90% source, 54.19% transfer, -17.7% vs random
+
+*[Emphasize the paradox]*
+
+Standard FF features are WORSE than random. This is not "a bit worse"—this is fundamentally broken for transfer.
+
+### 中文
+
+*[逐一讲解表格]*
+
+让我展示完整的比较：
+
+- **CwC-FF**：源 98.71%，迁移 89.05%，比随机高 17.2%
+- **Backprop**：源 95.08%，迁移 75.49%，比随机高 3.6%
+- **Random**：71.89% 基线
+- **Standard FF**：源 89.90%，迁移 54.19%，比随机低 17.7%
+
+*[强调悖论]*
+
+标准 FF 特征比随机还差。这不是"差一点"——对于迁移来说这是根本性的问题。
+
+---
+
+## Slide 12: RQ2 - t-SNE Visualization
+
+### English
+
+*[Point to the figure]*
+
+This t-SNE visualization makes the problem clear.
+
+On the left: FF features on Fashion-MNIST. See how scattered the clusters are? The features don't separate the classes well.
+
+On the right: BP features. Much more organized clusters with clear separation.
+
+FF features learned for MNIST don't transfer—they're task-specific, not general visual features.
+
+### 中文
+
+*[指向图片]*
+
+这个 t-SNE 可视化清楚地展示了问题。
+
+左边：Fashion-MNIST 上的 FF 特征。看到聚类有多分散吗？特征没有很好地分离类别。
+
+右边：BP 特征。聚类更有组织，有清晰的分离。
+
+为 MNIST 学习的 FF 特征无法迁移——它们是任务特定的，不是通用的视觉特征。
+
+---
+
+## Slide 13: RQ3 - Label Embedding Root Cause (Figure)
+
+### English
+
+*[Point to the figure—this is the key explanation]*
+
+This figure explains WHY FF fails at transfer. It's all about label embedding.
+
+*[Walk through the 4 panels]*
+
+1. **What is Label Embedding**: The first 10 pixels contain the label, not image data
+2. **Why It Breaks Transfer**: MNIST label 0 = digit zero, but Fashion-MNIST label 0 = T-shirt!
+3. **What Features Learn**: Standard FF learns "label detectors", CwC-FF learns actual visual features
+4. **Results**: Standard FF 54%, CwC-FF 89%
+
+The label embedding creates a shortcut that destroys transfer.
+
+### 中文
+
+*[指向图片——这是关键解释]*
+
+这张图解释了为什么 FF 在迁移时失败。一切都与标签嵌入有关。
+
+*[逐一讲解 4 个面板]*
+
+1. **什么是标签嵌入**：前 10 个像素包含标签，不是图像数据
+2. **为什么破坏迁移**：MNIST 标签 0 = 数字零，但 Fashion-MNIST 标签 0 = T 恤！
+3. **特征学到什么**：标准 FF 学习"标签检测器"，CwC-FF 学习实际的视觉特征
+4. **结果**：标准 FF 54%，CwC-FF 89%
+
+标签嵌入创造了一个破坏迁移的捷径。
+
+---
+
+## Slide 14: RQ3 - Why Label Embedding Breaks Transfer
+
+### English
+
+*[Use a concrete example]*
+
+Let me make this concrete.
+
+During MNIST training, pixel[3] being bright means "digit 3". The network learns: "pixel[3] bright + curves = positive sample."
+
+Now we transfer to Fashion-MNIST. Pixel[3] bright now means "Dress", not digit 3! But the network still expects curves when it sees pixel[3] lit up.
+
+*[Point to the two blocks]*
+
+**Standard FF**: Features = f(image, LABEL) → Useless when labels change meaning!
+
+**CwC-FF**: Features = f(image) → Transfer beautifully!
+
+### 中文
+
+*[使用具体例子]*
+
+让我具体说明。
+
+在 MNIST 训练期间，pixel[3] 亮意味着"数字 3"。网络学习到："pixel[3] 亮 + 曲线 = 正样本。"
+
+现在我们迁移到 Fashion-MNIST。Pixel[3] 亮现在意味着"连衣裙"，不是数字 3！但当网络看到 pixel[3] 亮起时，它仍然期望曲线。
+
+*[指向两个块]*
+
+**标准 FF**：特征 = f(图像, 标签) → 当标签含义改变时无用！
+
+**CwC-FF**：特征 = f(图像) → 完美迁移！
+
+---
+
+## Slide 15: RQ4 - Bio-Inspired Overview (Figure)
+
+### English
+
+*[Point to the figure]*
+
+At this point we thought: maybe FF needs to be MORE biologically plausible to transfer well.
+
+So we implemented 5 bio-inspired variants based on cutting-edge neuroscience research.
+
+*[Point to results in figure]*
+
+The results? Most failed. Three-factor learning gave +1.5% marginal improvement. Prospective FF and PCL-FF failed catastrophically.
+
+Only CwC-FF actually works—and ironically, it's not trying to be more biological. It's fixing the architectural problem.
+
+### 中文
+
+*[指向图片]*
+
+这时我们想：也许 FF 需要更具生物学合理性才能更好地迁移。
+
+所以我们基于前沿神经科学研究实现了 5 种生物启发变体。
+
+*[指向图中的结果]*
+
+结果如何？大多数失败了。三因子学习给出了 +1.5% 的轻微改善。前瞻性 FF 和 PCL-FF 灾难性地失败了。
+
+只有 CwC-FF 真正有效——讽刺的是，它并没有试图变得更具生物学性。它在修复架构问题。
+
+---
+
+## Slide 16: Three-Factor Hebbian Learning
+
+### English
+
+Three-factor learning comes from the neuromodulator literature. Real synapses are modulated by dopamine, acetylcholine, and norepinephrine.
+
+*[Point to equation]*
+
+The learning rule: ΔW = f(pre) × f(post) × M(t), where M is a modulator signal.
+
+*[Point to results table]*
+
+We tested three modulation schemes:
+- Top-down modulation: +1.5% transfer (marginal)
+- None (baseline): 62.8%
+- Layer agreement: -3.0% (hurt!)
+- Reward prediction: 18.4% (failed!)
+
+**Verdict**: Modulation doesn't fix label coupling. You're modulating a signal that's teaching the wrong thing.
+
+### 中文
+
+三因子学习来自神经调质文献。真正的突触受到多巴胺、乙酰胆碱和去甲肾上腺素的调节。
+
+*[指向公式]*
+
+学习规则：ΔW = f(pre) × f(post) × M(t)，其中 M 是调节信号。
+
+*[指向结果表]*
+
+我们测试了三种调节方案：
+- 自上而下调节：迁移 +1.5%（轻微）
+- 无（基线）：62.8%
+- 层协议：-3.0%（有害！）
+- 奖励预测：18.4%（失败！）
+
+**结论**：调节不能修复标签耦合。你在调节一个教错误东西的信号。
+
+---
+
+## Slide 17: Prospective FF
+
+### English
+
+Prospective FF comes from Song et al.'s Nature Neuroscience 2024 paper on anticipatory neural activity.
+
+*[Explain the mechanism]*
+
+The idea: two-phase learning. First infer what the target activity should be, then consolidate weights to produce that activity.
 
 *[Point to results]*
 
-Top-down modulation showed marginal improvement - about 47% transfer instead of 42%. Better than baseline, but still worse than random.
+But look at what happens with more iterations:
+- 1 iteration: +5.3% transfer gain
+- 10 iterations: +1.2%
+- 100 iterations: -13.2%!
 
-Bottom-up and surprise-based? No improvement at all.
+More iterations = STRONGER label coupling = WORSE transfer!
 
-The core problem is still there: the label embedding creates a shortcut that modulation can't fix. You're modulating a learning signal that's fundamentally teaching the wrong thing.
+The mechanism amplifies label-specific features instead of fixing the problem.
 
 ### 中文
 
-让我们看看三因子学习的结果。
+前瞻性 FF 来自 Song 等人 2024 年 Nature Neuroscience 论文中关于预期神经活动的研究。
 
-核心想法是学习应该被全局信号调节——就像大脑中的多巴胺。当意外发生时，多巴胺飙升，这告诉所有突触"注意，这很重要。"
+*[解释机制]*
 
-我们尝试了三种调节方案：
-- 自上而下：高层调节低层
-- 自下而上：输入质量调节所有层
-- 惊讶基础：预测误差调节学习
+想法：两阶段学习。首先推断目标活动应该是什么，然后整合权重来产生该活动。
 
 *[指向结果]*
 
-自上而下调节显示了轻微改善——大约47%的迁移准确率，而不是42%。比基线好，但仍然比随机差。
+但看看更多迭代时会发生什么：
+- 1 次迭代：迁移增益 +5.3%
+- 10 次迭代：+1.2%
+- 100 次迭代：-13.2%！
 
-自下而上和惊讶基础？完全没有改善。
+更多迭代 = 更强的标签耦合 = 更差的迁移！
 
-核心问题仍然存在：标签嵌入创造了一个调节无法修复的捷径。你在调节一个根本就在教错误事情的学习信号。
+该机制放大了标签特定的特征，而不是修复问题。
 
 ---
 
-## Slide 10: Prospective FF Results - More Iterations, Worse Results
+## Slide 18: PCL-FF (Death Cascade)
 
 ### English
 
-Next, Prospective Forward-Forward. This is based on a Nature Neuroscience paper from 2024.
+PCL-FF is inspired by predictive coding in cortical circuits.
 
-The idea is intriguing: instead of just learning current representations, learn to predict what representations SHOULD be. It's a two-phase approach - one phase predicts, one phase corrects.
+*[Point to the mechanism]*
 
-We thought this might help because it forces the network to develop more structured internal representations.
+The idea: only prediction errors propagate forward, creating sparsity. But the sparsity penalty created a "death cascade."
 
-*[Point to learning curve]*
+*[Explain the cascade]*
 
-What we found was counterintuitive. With few iterations, Prospective FF matches baseline FF. But as we increase the prediction iterations - which should give better predictions - transfer performance gets WORSE.
+The sparsity penalty incentivizes h = 0. Combined with ReLU, this creates a positive feedback loop:
+- More zeros → lower loss
+- Network learns "dead neurons = good"
 
-5 iterations: 40% transfer
-10 iterations: 38% transfer
-20 iterations: 35% transfer
+*[Point to results]*
 
-The prediction mechanism is reinforcing the label-dependent representations. More prediction iterations mean stronger reinforcement of the shortcut.
+Standard FF: 90% accuracy, 8% dead neurons
+PCL-FF: 17.5% accuracy, 100% dead neurons
+
+Complete failure. The death cascade killed all neurons by epoch 500.
 
 ### 中文
 
-接下来是前瞻性 Forward-Forward。这基于2024年 Nature Neuroscience 的一篇论文。
+PCL-FF 受到皮层回路中预测编码的启发。
 
-这个想法很有趣：不是只学习当前表征，而是学习预测表征应该是什么。这是一种两阶段方法——一个阶段预测，一个阶段纠正。
+*[指向机制]*
 
-我们认为这可能有帮助，因为它迫使网络发展更结构化的内部表征。
+想法：只有预测误差向前传播，创造稀疏性。但稀疏性惩罚创造了"死亡级联"。
 
-*[指向学习曲线]*
+*[解释级联]*
 
-我们发现的结果是反直觉的。迭代次数少时，前瞻性 FF 与基线 FF 相当。但当我们增加预测迭代次数——这应该会给出更好的预测时——迁移性能反而变得更差。
+稀疏性惩罚激励 h = 0。结合 ReLU，这创造了一个正反馈循环：
+- 更多零 → 更低损失
+- 网络学习"死神经元 = 好"
 
-5次迭代：40%迁移
-10次迭代：38%迁移
-20次迭代：35%迁移
+*[指向结果]*
 
-预测机制正在强化标签依赖的表征。更多的预测迭代意味着对捷径更强的强化。
+标准 FF：90% 准确率，8% 死神经元
+PCL-FF：17.5% 准确率，100% 死神经元
+
+完全失败。到第 500 个 epoch，死亡级联杀死了所有神经元。
 
 ---
 
-## Slide 11: PCL-FF Results - The Death Cascade
+## Slide 19: Lessons from Failures (Figure)
 
 ### English
 
-Finally, Predictive Coding Light FF. This adds sparse coding to FF, inspired by how real neurons have sparse activation patterns.
+*[Point to the figure]*
 
-The theory is sound: sparse representations are often more interpretable and more transferable. Many brain areas show sparse coding.
+This figure summarizes what we learned from our failures.
 
-*[Point to visualization if available]*
+**Key insight**: Bio-inspired modifications address SYMPTOMS, not the ROOT CAUSE.
 
-But we ran into what I call the "death cascade."
+The fundamental problem is label embedding. Adding dopamine-like modulation, predictive coding, or sparsity doesn't fix the core architectural issue.
 
-Sparse coding in FF causes low-activity neurons to receive even less gradient signal. So they become even less active. Then they get even less signal. And eventually, they effectively die - zero activation, zero gradient, no recovery.
-
-We watched as layer after layer experienced this cascade. By the end of training, sometimes 60% of neurons were effectively dead.
-
-*[Pause]*
-
-Dead neurons don't transfer. Transfer accuracy: 38%.
-
-The biological plausibility of sparsity is undermined by the local learning rule. There's no global signal to rescue dying neurons.
+The only solution that works—CwC-FF—removes labels from the input entirely.
 
 ### 中文
 
-最后是预测编码轻量版 FF。这为 FF 添加了稀疏编码，受到真实神经元具有稀疏激活模式的启发。
+*[指向图片]*
 
-理论是合理的：稀疏表征通常更可解释且更可迁移。许多大脑区域显示稀疏编码。
+这张图总结了我们从失败中学到的东西。
 
-*[如果有可视化就指向它]*
+**关键洞察**：生物启发的修改解决的是症状，而不是根本原因。
 
-但我们遇到了我称之为"死亡级联"的问题。
+根本问题是标签嵌入。添加类似多巴胺的调节、预测编码或稀疏性不能修复核心架构问题。
 
-FF 中的稀疏编码导致低活动神经元接收到更少的梯度信号。所以它们变得更不活跃。然后它们得到更少的信号。最终，它们实际上死亡了——零激活，零梯度，无法恢复。
-
-我们看着一层接一层地经历这种级联。到训练结束时，有时60%的神经元实际上已经死亡。
-
-*[停顿]*
-
-死亡的神经元无法迁移。迁移准确率：38%。
-
-稀疏性的生物学合理性被局部学习规则破坏了。没有全局信号来拯救濒死的神经元。
+唯一有效的解决方案——CwC-FF——完全从输入中移除标签。
 
 ---
 
-## Slide 12: Layer Collaboration - Modest Improvement
+## Slide 20: CwC-FF - The Solution
 
 ### English
 
-We also tried Layer Collaboration, based on Lorberbom's AAAI 2024 paper.
+*[Build anticipation]*
 
-The insight there is that in standard FF, each layer optimizes independently. They don't know about each other. Layer 1 doesn't know Layer 3 exists.
+So after all those failures, let me introduce the solution: Channel-wise Competitive FF.
 
-Layer Collaboration adds a "gamma" term - each layer sees the total goodness from other layers, which provides some coordination.
+*[Point to comparison]*
 
-*[Show the comparison]*
+**Standard FF**: Input = [label, image], features coupled to labels
 
-Results: 51% transfer accuracy. Better than baseline FF (42%), finally beats random (45%).
+**CwC-FF**: Input = [image] only—NO LABELS!
 
-But it's still far from BP (85%). Layer collaboration helps layers work together, but it doesn't fix the fundamental label embedding problem.
+Instead of label embedding, CwC-FF uses channel competition:
+- Channels compete within layers
+- Winners get positive signal
+- Losers get negative signal
+- No labels needed at all!
 
-The layers are now coordinating, but they're coordinating to learn the same label-dependent shortcut. Coordinated failure is still failure.
-
-### 中文
-
-我们还尝试了层协作，基于 Lorberbom 2024年 AAAI 论文。
-
-那里的洞察是：在标准 FF 中，每层独立优化。它们不知道彼此的存在。第一层不知道第三层存在。
-
-层协作添加了一个"gamma"项——每层看到其他层的总 goodness，这提供了一些协调。
-
-*[展示比较]*
-
-结果：51%迁移准确率。比基线 FF（42%）好，终于超过了随机（45%）。
-
-但仍然远离 BP（85%）。层协作帮助各层一起工作，但它没有修复根本的标签嵌入问题。
-
-各层现在在协调了，但它们在协调学习相同的标签依赖捷径。协调的失败仍然是失败。
-
----
-
-## Slide 13: CwC-FF - The Solution That Works
-
-### English
-
-*[Build up the anticipation]*
-
-So we've tried sophisticated negative samples, three different neuroscience-inspired methods, and layer collaboration. All failures or marginal improvements.
-
-Then we found CwC-FF: Channel-wise Competitive Forward-Forward.
-
-*[Emphasize this point]*
-
-The key insight: remove the labels entirely from the input.
-
-Instead of embedding labels in the image, CwC-FF uses channel competition. Different channels in the same layer compete to represent the input. Positive "goodness" is defined by channel agreement. Negative "goodness" is defined by channel disagreement.
-
-No labels in the input means no label-dependent shortcut. The network HAS to learn actual visual features.
-
-*[Point to architecture diagram if available]*
-
-This is a single forward pass - even more efficient than standard FF. And it's completely unsupervised.
+This is the key architectural change that makes transfer work.
 
 ### 中文
 
 *[积累期待]*
 
-所以我们尝试了复杂的负样本、三种不同的神经科学启发方法和层协作。全部失败或只有轻微改善。
+所以在所有这些失败之后，让我介绍解决方案：通道竞争 FF。
 
-然后我们发现了 CwC-FF：通道竞争 Forward-Forward。
+*[指向比较]*
 
-*[强调这一点]*
+**标准 FF**：输入 = [标签, 图像]，特征与标签耦合
 
-关键洞察：从输入中完全移除标签。
+**CwC-FF**：输入 = [仅图像]——没有标签！
 
-CwC-FF 不是把标签嵌入到图像中，而是使用通道竞争。同一层的不同通道竞争来表示输入。正向"goodness"由通道一致性定义。负向"goodness"由通道不一致性定义。
+CwC-FF 不使用标签嵌入，而是使用通道竞争：
+- 通道在层内竞争
+- 赢家获得正信号
+- 输家获得负信号
+- 完全不需要标签！
 
-输入中没有标签意味着没有标签依赖的捷径。网络必须学习实际的视觉特征。
-
-*[如果有架构图就指向它]*
-
-这是单次前向传递——比标准 FF 更高效。而且它是完全无监督的。
+这是使迁移有效的关键架构变化。
 
 ---
 
-## Slide 14: CwC-FF Results - The Only Method That Works
+## Slide 21: CwC-FF Results (Figure + Table)
 
 ### English
 
-*[This is the payoff - speak with confidence]*
+*[Point to radar chart]*
 
-Here are the results.
+Look at this comparison. CwC-FF dominates across all dimensions.
 
-CwC-FF transfer accuracy: 89%.
+*[Walk through the table]*
 
-*[Let that number land]*
+- CwC-FF: 98.71% source, 89.05% transfer, +17.2% vs random, high bio-plausibility
+- Backprop: 99.2% source, 75.49% transfer, none bio-plausible
+- Standard FF: 94.50% source, 54.19% transfer
 
-That's not a typo. 89%. Compared to 42% for standard FF. Compared to 45% for random initialization.
-
-*[Walk through the comparison]*
-
-- Standard FF: 42% - worse than random
-- Bio-inspired modifications: 35-47% - still struggling
-- Layer Collaboration: 51% - modest improvement
-- CwC-FF: 89% - actually competitive with backprop at 85%
-
-CwC-FF isn't just better. It's the ONLY FF variant we tested that actually achieves meaningful transfer learning.
-
-The lesson: the label embedding isn't just a detail. It's the root cause of the transfer failure. Remove it, and FF works.
+CwC-FF gives us the BEST of both worlds: better than backprop at transfer while remaining biologically plausible!
 
 ### 中文
 
-*[这是回报——自信地说]*
+*[指向雷达图]*
 
-这是结果。
+看这个比较。CwC-FF 在所有维度上都占优势。
 
-CwC-FF 迁移准确率：89%。
+*[逐一讲解表格]*
 
-*[让这个数字沉淀]*
+- CwC-FF：源 98.71%，迁移 89.05%，比随机高 17.2%，生物合理性高
+- Backprop：源 99.2%，迁移 75.49%，无生物合理性
+- 标准 FF：源 94.50%，迁移 54.19%
 
-这不是打字错误。89%。相比标准 FF 的42%。相比随机初始化的45%。
-
-*[走过比较]*
-
-- 标准 FF：42% - 比随机还差
-- 生物启发修改：35-47% - 仍在挣扎
-- 层协作：51% - 适度改善
-- CwC-FF：89% - 实际上与85%的反向传播具有竞争力
-
-CwC-FF 不只是更好。它是我们测试的唯一一个真正实现有意义迁移学习的 FF 变体。
-
-教训：标签嵌入不只是一个细节。它是迁移失败的根本原因。移除它，FF 就能工作。
+CwC-FF 给我们两全其美：在迁移方面比反向传播更好，同时保持生物学合理性！
 
 ---
 
-## Slide 15: Key Insights - Three Takeaways
+## Slide 22: Summary of Findings (Figure)
 
 ### English
 
-Let me summarize with three key insights.
+*[Point to summary figure]*
 
-*[Count on fingers as you go through these]*
+This figure captures our complete findings:
 
-**First: Simple negative sampling wins for training, but loses for transfer.**
-Hinton's label embedding gives the best accuracy on the source task. But it creates a shortcut that destroys transferability. There's a fundamental tension here.
+1. Standard FF achieves high source accuracy but fails at transfer
+2. Bio-inspired modifications don't solve the core problem
+3. CwC-FF's label-free approach is the solution
 
-**Second: Bio-inspired solutions fail when they don't address the root cause.**
-We tried dopamine-like modulation, predictive coding, sparse representations. All are real features of biological neural systems. None helped because they don't address the label embedding problem. It's not enough to be biologically inspired - you need to solve the right problem.
-
-**Third: Label-free learning is key for transferable representations.**
-The only successful method - CwC-FF - removes labels from the input entirely. This forces the network to learn actual visual features rather than label-pixel correlations. This might be a general principle: supervised signals in the input create non-transferable shortcuts.
+The transfer paradox has been explained and solved.
 
 ### 中文
 
-让我用三个关键洞察来总结。
+*[指向总结图]*
 
-*[边讲边用手指数]*
+这张图概括了我们的完整发现：
 
-**第一：简单的负样本策略赢得训练，但输掉迁移。**
-Hinton 的标签嵌入在源任务上给出最佳准确率。但它创造了一个破坏可迁移性的捷径。这里有一个根本性的张力。
+1. 标准 FF 达到高源准确率但迁移失败
+2. 生物启发的修改不能解决核心问题
+3. CwC-FF 的无标签方法是解决方案
 
-**第二：当生物启发解决方案不解决根本原因时，它们会失败。**
-我们尝试了类似多巴胺的调节、预测编码、稀疏表征。所有这些都是生物神经系统的真实特征。没有一个有帮助，因为它们不解决标签嵌入问题。仅仅受生物学启发是不够的——你需要解决正确的问题。
-
-**第三：无标签学习是可迁移表征的关键。**
-唯一成功的方法——CwC-FF——完全从输入中移除标签。这迫使网络学习实际的视觉特征，而不是标签-像素相关性。这可能是一个普遍原则：输入中的监督信号创造不可迁移的捷径。
+迁移悖论已被解释和解决。
 
 ---
 
-## Slide 16: Conclusion - What This Means for FF's Future
+## Slide 23: Key Insights
 
 ### English
 
-So what does this mean for the future of Forward-Forward?
+*[Count on fingers]*
 
-The algorithm isn't dead. But the original formulation with label embedding has a fundamental flaw for any application requiring transfer.
+Four key insights:
 
-If you want FF for single-task learning in resource-constrained environments - edge devices, neuromorphic chips - the original method works fine. Use the simple label embedding.
+1. **Simple negative sampling wins for training but loses for transfer.** The same label embedding that gives 94.5% accuracy creates the shortcut that destroys transfer.
 
-But if you want FF for foundation models, for pre-training that transfers to downstream tasks, you MUST use label-free variants like CwC-FF.
+2. **Bio-inspired modifications don't help.** Three-factor learning, predictive coding, sparsity—all real brain features, none fix the problem.
 
-*[Pause]*
+3. **Label-free learning is key.** CwC-FF removes labels entirely, forcing the network to learn actual visual features.
 
-There's also a deeper implication. Biological plausibility isn't just about "no backward pass." The brain does many things that we might not think are essential - sparse coding, neuromodulation, predictive processing - but our experiments show these don't automatically improve transfer.
-
-What matters is whether the learning objective encourages genuinely useful representations. The brain solves this somehow. We're still figuring out how.
-
-*[Final pause]*
-
-Questions?
+4. **There IS a solution.** CwC-FF: 98.7% source, 89% transfer—best of both worlds!
 
 ### 中文
 
-那么这对 Forward-Forward 的未来意味着什么？
+*[用手指数]*
 
-这个算法没有死亡。但原始的标签嵌入公式对于任何需要迁移的应用都有一个根本性的缺陷。
+四个关键洞察：
 
-如果你想在资源受限的环境中使用 FF 进行单任务学习——边缘设备、神经形态芯片——原始方法工作得很好。使用简单的标签嵌入。
+1. **简单的负样本策略赢得训练但输掉迁移。** 带来 94.5% 准确率的相同标签嵌入创造了破坏迁移的捷径。
 
-但如果你想让 FF 用于基础模型，用于可迁移到下游任务的预训练，你必须使用像 CwC-FF 这样的无标签变体。
+2. **生物启发的修改没有帮助。** 三因子学习、预测编码、稀疏性——都是真实的大脑特征，没有一个能修复问题。
 
-*[停顿]*
+3. **无标签学习是关键。** CwC-FF 完全移除标签，迫使网络学习实际的视觉特征。
 
-还有一个更深层的含义。生物学合理性不只是关于"没有反向传递"。大脑做很多我们可能认为不是必需的事情——稀疏编码、神经调节、预测处理——但我们的实验表明这些不会自动改善迁移。
-
-重要的是学习目标是否鼓励真正有用的表征。大脑以某种方式解决了这个问题。我们仍在弄清楚如何做到。
-
-*[最后的停顿]*
-
-有问题吗？
+4. **有解决方案。** CwC-FF：源 98.7%，迁移 89%——两全其美！
 
 ---
 
-## Slide 17: References
+## Slide 24: Conclusion
 
 ### English
 
-I want to acknowledge the key papers that informed this work.
+So why hasn't FF become the new paradigm?
 
-Hinton's original 2022 paper that introduced Forward-Forward.
+*[Point to limitations]*
 
-Brenig et al. 2023 - they first showed FF has transfer problems, which prompted our deeper investigation.
+**Limitations**: 4.7% accuracy gap, catastrophic transfer failure, label embedding creates shortcuts, bio-inspired fixes don't help.
 
-Lorberbom et al. at AAAI 2024 for Layer Collaboration.
+*[Point to path forward]*
 
-Papachristodoulou et al. for CwC-FF, which turned out to be the solution.
+**The Path Forward**: CwC-FF solves the transfer issue. Remove labels from input. Channel competition works. There's potential for neuromorphic hardware.
 
-And the many neuroscience papers on three-factor learning, predictive coding, and sparse representations that inspired our attempts.
+*[Read the take-home message]*
 
-*[If there's time]*
-
-The code and detailed results will be available on our repository. Happy to discuss any of these methods in more detail.
-
-Thank you.
+**Take-home message**: Biological plausibility alone doesn't guarantee good ML properties. Understanding failure modes leads to principled solutions.
 
 ### 中文
 
-我想感谢为这项工作提供信息的关键论文。
+那么为什么 FF 没有成为新的范式？
 
-Hinton 2022年的原始论文介绍了 Forward-Forward。
+*[指向限制]*
 
-Brenig 等人 2023年——他们首先展示了 FF 有迁移问题，这促使我们进行更深入的调查。
+**限制**：4.7% 的准确率差距，灾难性的迁移失败，标签嵌入创造捷径，生物启发的修复没有帮助。
 
-Lorberbom 等人在 AAAI 2024 的层协作工作。
+*[指向前进道路]*
 
-Papachristodoulou 等人的 CwC-FF，它最终成为解决方案。
+**前进道路**：CwC-FF 解决了迁移问题。从输入中移除标签。通道竞争有效。有神经形态硬件的潜力。
 
-以及许多关于三因子学习、预测编码和稀疏表征的神经科学论文，它们启发了我们的尝试。
+*[读取核心信息]*
 
-*[如果有时间]*
-
-代码和详细结果将在我们的仓库中提供。很乐意更详细地讨论这些方法中的任何一个。
-
-谢谢。
+**核心信息**：仅生物学合理性不能保证良好的 ML 属性。理解失败模式导致原则性的解决方案。
 
 ---
 
-# Appendix: Q&A Preparation
+## Slide 25: Future Work
 
-## Anticipated Questions and Answers
+### English
+
+Several directions for future work:
+
+1. **Scale CwC-FF** to CIFAR-10 and ImageNet
+2. **Hybrid approaches**: FF for early layers + BP for final layers
+3. **Neuromorphic implementation** on Intel Loihi or IBM TrueNorth
+4. **Unsupervised extensions**: Remove supervision entirely
+
+### 中文
+
+未来工作的几个方向：
+
+1. **扩展 CwC-FF** 到 CIFAR-10 和 ImageNet
+2. **混合方法**：早期层用 FF + 最终层用 BP
+3. **神经形态实现** 在 Intel Loihi 或 IBM TrueNorth 上
+4. **无监督扩展**：完全移除监督
+
+---
+
+## Slide 26: References
+
+### English
+
+I want to acknowledge the key papers that informed this work. Hinton's original 2022 paper, Brenig et al. for first showing FF has transfer problems, Lorberbom for Layer Collaboration, and most importantly Papachristodoulou et al. for CwC-FF—the solution that actually works.
+
+### 中文
+
+我想感谢为这项工作提供信息的关键论文。Hinton 2022 年的原始论文，Brenig 等人首先展示 FF 有迁移问题，Lorberbom 的层协作，最重要的是 Papachristodoulou 等人的 CwC-FF——真正有效的解决方案。
+
+---
+
+## Slide 27: Thank You
+
+### English
+
+Thank you for your attention. Questions?
+
+The code and all experiments are available at github.com/koriyoshi2041/ff-negative-samples.
+
+This was tested on Apple M4 Air with PyTorch 2.0+.
+
+### 中文
+
+感谢您的关注。有问题吗？
+
+代码和所有实验可在 github.com/koriyoshi2041/ff-negative-samples 获取。
+
+这是在 Apple M4 Air 上使用 PyTorch 2.0+ 测试的。
+
+---
+
+# Q&A Preparation
+
+## Anticipated Questions
 
 ### Q: Why didn't you test on larger datasets like ImageNet?
 
-**EN:** Great question. We focused on MNIST/Fashion-MNIST and CIFAR because the compute requirements for FF are still significant, and we wanted to thoroughly explore the method space first. ASGE from ICASSP 2026 has started pushing to ImageNet scale, and combining CwC-FF with their techniques is a natural next step.
+**EN:** We focused on MNIST/Fashion-MNIST to thoroughly understand the mechanism before scaling. ASGE from ICASSP 2026 has started pushing to ImageNet scale—combining CwC-FF with their techniques is a natural next step.
 
-**中文:** 很好的问题。我们专注于 MNIST/Fashion-MNIST 和 CIFAR，因为 FF 的计算要求仍然很大，我们想先彻底探索方法空间。ICASSP 2026 的 ASGE 已经开始推向 ImageNet 规模，将 CwC-FF 与他们的技术结合是自然的下一步。
+**中文:** 我们专注于 MNIST/Fashion-MNIST 以在扩展之前彻底理解机制。ICASSP 2026 的 ASGE 已经开始推向 ImageNet 规模——将 CwC-FF 与他们的技术结合是自然的下一步。
 
 ### Q: Isn't CwC-FF just contrastive learning?
 
-**EN:** There's a connection, yes. Both use competition to define positive and negative signals. But CwC-FF is more localized - competition happens within channels of the same layer, not between different augmentations of the same image. This makes it more compatible with FF's layer-local learning. You could see it as bringing contrastive principles into the FF framework.
+**EN:** There's a connection. Both use competition for positive/negative signals. But CwC-FF is more localized—competition happens within channels of the same layer, not between different augmentations. This makes it compatible with FF's layer-local learning.
 
-**中文:** 是的，有联系。两者都使用竞争来定义正负信号。但 CwC-FF 更局部化——竞争发生在同一层的通道之间，而不是同一图像的不同增强之间。这使它与 FF 的层局部学习更兼容。你可以把它看作是将对比原则带入 FF 框架。
-
-### Q: What about CNNs and Transformers?
-
-**EN:** Our experiments used MLPs to isolate the learning algorithm effects. Recent work like DeeperForward and ASGE has shown FF can work with CNNs. Transformers are trickier because of the attention mechanism, but there's early work there too. The label embedding problem we identified should apply regardless of architecture.
-
-**中文:** 我们的实验使用 MLP 来隔离学习算法的效果。像 DeeperForward 和 ASGE 这样的最新工作已经表明 FF 可以与 CNN 一起工作。Transformer 因为注意力机制更棘手，但那里也有早期工作。我们发现的标签嵌入问题应该适用于任何架构。
+**中文:** 有联系。两者都使用竞争来产生正负信号。但 CwC-FF 更局部化——竞争发生在同一层的通道之间，而不是不同增强之间。这使它与 FF 的层局部学习兼容。
 
 ### Q: Is FF actually used in any real applications?
 
-**EN:** Not widely yet. The main interest is in neuromorphic computing - chips that mimic brain architecture. Intel's Loihi, IBM's TrueNorth, and similar projects could benefit from BP-free training. There's also interest from the edge computing community where memory is precious. But for mainstream deep learning, BP still dominates.
+**EN:** Not widely yet. The main interest is in neuromorphic computing—chips like Intel Loihi and IBM TrueNorth that could benefit from BP-free training. There's also interest from edge computing where memory is precious.
 
-**中文:** 还没有广泛使用。主要兴趣在神经形态计算——模仿大脑架构的芯片。Intel 的 Loihi、IBM 的 TrueNorth 和类似项目可以从无反向传播训练中受益。边缘计算社区也有兴趣，因为那里内存很珍贵。但对于主流深度学习，反向传播仍然占主导地位。
+**中文:** 还没有广泛使用。主要兴趣在神经形态计算——像 Intel Loihi 和 IBM TrueNorth 这样的芯片可以从无 BP 训练中受益。边缘计算也有兴趣，因为那里内存很珍贵。
 
 ---
 
 # Timing Guide
 
-| Slide | Topic | Target Time | Cumulative |
-|-------|-------|-------------|------------|
-| 1 | Title | 1 min | 1 min |
-| 2 | Motivation | 1.5 min | 2.5 min |
-| 3 | FF Algorithm | 1.5 min | 4 min |
-| 4 | Research Questions | 1 min | 5 min |
-| 5 | Negative Sampling | 1.5 min | 6.5 min |
-| 6 | Transfer Paradox | 2 min | 8.5 min |
-| 7 | Root Cause | 1.5 min | 10 min |
-| 8 | Bio-Inspired Intro | 1 min | 11 min |
-| 9 | Three-Factor | 1 min | 12 min |
-| 10 | Prospective FF | 1 min | 13 min |
-| 11 | PCL-FF | 1 min | 14 min |
-| 12 | Layer Collab | 1 min | 15 min |
-| 13 | CwC-FF Solution | 1.5 min | 16.5 min |
-| 14 | CwC-FF Results | 1 min | 17.5 min |
-| 15 | Key Insights | 1.5 min | 19 min |
-| 16 | Conclusion | 1 min | 20 min |
-| 17 | References | 0.5 min | 20.5 min |
+| Slide | Topic | Target Time |
+|-------|-------|-------------|
+| 1-3 | Introduction | 2 min |
+| 4-5 | The Problem | 2 min |
+| 6-7 | FF Algorithm | 2 min |
+| 8-9 | RQ1: Negative Sampling | 2 min |
+| 10-12 | RQ2: Transfer Paradox | 3 min |
+| 13-14 | RQ3: Root Cause | 3 min |
+| 15-19 | RQ4: Bio-Inspired | 5 min |
+| 20-21 | CwC-FF Solution | 2 min |
+| 22-25 | Discussion | 3 min |
+| 26-27 | Wrap-up | 1 min |
+| **Total** | | **~25 min** |
 
 **Buffer for Q&A:** 5-10 minutes
 
@@ -742,14 +872,12 @@ Papachristodoulou 等人的 CwC-FF，它最终成为解决方案。
 
 # Presentation Tips
 
-1. **The transfer paradox (Slide 6) is your "wow" moment** - slow down, make eye contact, let the numbers sink in
+1. **The transfer paradox (Slides 10-11) is your "wow" moment**—slow down, let the numbers sink in
 
-2. **Use hand gestures** when counting the three insights (Slide 15)
+2. **Use the figures actively**—point to specific parts as you explain
 
-3. **The bio-inspired failures are important context** - don't rush through them, they show rigor
+3. **The bio-inspired failures build tension**—they set up CwC-FF as the revelation
 
-4. **CwC-FF should feel like a revelation** - build anticipation through the failures
+4. **Practice the Chinese/English transitions** if presenting to bilingual audience
 
-5. **Practice the bilingual transitions** - some audiences may want to switch mid-presentation
-
-6. **Have backup slides** with detailed results tables in case of technical questions
+5. **Have backup answers** for "why not ImageNet" and "isn't this just contrastive learning"
