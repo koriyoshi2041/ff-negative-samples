@@ -784,7 +784,7 @@ FF is a beautiful idea—local learning without backpropagation. But after 3 yea
 
 ### Hardware
 
-- **Local**: M1 Max MacBook Pro (MPS)
+- **Local**: M4 Air MacBook (MPS)
 - **Server**: NVIDIA A100 40GB (CUDA)
 
 ### Training Configuration

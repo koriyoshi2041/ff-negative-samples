@@ -1,0 +1,801 @@
+% ============================================================================
+% Forward-Forward Algorithm Research Presentation
+% Minimalist Beamer Style (inspired by pmichaillat/latex-presentation)
+% ============================================================================
+
+\documentclass[11pt,aspectratio=169]{beamer}
+
+% ============================================================================
+% Packages
+% ============================================================================
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+% \usepackage{microtype}  % Optional: install with tlmgr if needed
+\usepackage{amsmath,amssymb}
+% \usepackage{booktabs}   % Optional: for nicer tables
+% \usepackage{multirow}   % Optional: for multirow cells
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
+
+% ============================================================================
+% Theme Configuration
+% ============================================================================
+\usetheme{default}
+\usecolortheme{seagull}
+
+% Remove navigation symbols
+\setbeamertemplate{navigation symbols}{}
+
+% Frame numbering
+\setbeamertemplate{footline}[frame number]
+
+% ============================================================================
+% Colors (Minimalist Grayscale + Accent)
+% ============================================================================
+\definecolor{BlackGray}{HTML}{333333}
+\definecolor{DarkGray}{HTML}{666666}
+\definecolor{LightGray}{HTML}{F0F0F0}
+\definecolor{AlertRed}{HTML}{B22222}
+\definecolor{SuccessGreen}{HTML}{228B22}
+\definecolor{AccentBlue}{HTML}{1E3A5F}
+
+% Apply colors
+\setbeamercolor{normal text}{fg=BlackGray}
+\setbeamercolor{frametitle}{fg=BlackGray}
+\setbeamercolor{title}{fg=BlackGray}
+\setbeamercolor{structure}{fg=DarkGray}
+\setbeamercolor{itemize item}{fg=DarkGray}
+\setbeamercolor{itemize subitem}{fg=DarkGray}
+\setbeamercolor{block title}{fg=white,bg=AccentBlue}
+\setbeamercolor{block body}{bg=LightGray}
+\setbeamercolor{alerted text}{fg=AlertRed}
+
+% ============================================================================
+% Fonts
+% ============================================================================
+\usefonttheme{professionalfonts}
+\setbeamerfont{title}{size=\LARGE,series=\bfseries}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{framesubtitle}{size=\normalsize}
+
+% ============================================================================
+% Custom Commands
+% ============================================================================
+\newcommand{\al}[1]{\textcolor{AlertRed}{#1}}
+\newcommand{\alg}[1]{\textcolor{SuccessGreen}{#1}}
+\newcommand{\alb}[1]{\textcolor{AccentBlue}{#1}}
+\newcommand{\hl}[1]{\textbf{#1}}
+
+% ============================================================================
+% Title Information
+% ============================================================================
+\title{Why Forward-Forward Hasn't Become\\the New Paradigm}
+\subtitle{An Empirical Investigation into Transfer Learning Failures\\and Bio-Inspired Alternatives}
+\author{Research Team}
+\date{February 2026}
+\institute{FF Algorithm Research}
+
+% ============================================================================
+% Document
+% ============================================================================
+\begin{document}
+
+% ----------------------------------------------------------------------------
+% Title Slide
+% ----------------------------------------------------------------------------
+\begin{frame}[plain]
+    \titlepage
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% Outline
+% ----------------------------------------------------------------------------
+\begin{frame}{Outline}
+    \tableofcontents
+\end{frame}
+
+% ============================================================================
+\section{Motivation}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+% Motivation
+% ----------------------------------------------------------------------------
+\begin{frame}{The Biological Implausibility Problem}
+
+    \textbf{Backpropagation dominates deep learning, but...}
+
+    \vspace{1em}
+
+    \begin{itemize}
+        \item \hl{Weight Transport Problem}: Requires symmetric forward/backward weights
+        \item \hl{Non-Local Credit Assignment}: Error signals must travel entire network
+        \item \hl{Two-Phase Operation}: Forward pass $\rightarrow$ backward pass separation
+        \item \hl{Biologically Implausible}: No known neural mechanism for exact gradients
+    \end{itemize}
+
+    \vspace{1.5em}
+
+    \begin{block}{The Promise of Forward-Forward}
+        Hinton (2022): A biologically plausible alternative using only \alb{local learning rules}
+    \end{block}
+
+\end{frame}
+
+% ============================================================================
+\section{The Forward-Forward Algorithm}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+% How FF Works
+% ----------------------------------------------------------------------------
+\begin{frame}{The Forward-Forward Algorithm}
+
+    \textbf{Core Idea}: Replace backward pass with two forward passes
+
+    \vspace{1em}
+
+    \begin{columns}[T]
+        \begin{column}{0.48\textwidth}
+            \textbf{Positive Pass}
+            \begin{itemize}
+                \item Real data + correct label
+                \item Goal: \alg{Increase} goodness
+                \item $G = \sum_j h_j^2$
+            \end{itemize}
+
+            \vspace{0.5em}
+
+            \textbf{Negative Pass}
+            \begin{itemize}
+                \item Real data + wrong label
+                \item Goal: \al{Decrease} goodness
+            \end{itemize}
+        \end{column}
+
+        \begin{column}{0.48\textwidth}
+            \textbf{Goodness Function}
+            \begin{equation*}
+                G^l = \sum_{j=1}^{n_l} (h_j^l)^2
+            \end{equation*}
+
+            \vspace{0.5em}
+
+            \textbf{Layer-Local Objective}
+            \begin{equation*}
+                \mathcal{L}^l = \log(1 + e^{-y(G^l - \theta)})
+            \end{equation*}
+
+            \vspace{0.5em}
+
+            \small{$y = +1$ (positive), $y = -1$ (negative)}
+        \end{column}
+    \end{columns}
+
+    \vspace{1em}
+
+    % Placeholder for diagram
+    \centering
+    \textit{[Figure: figures/ff-algorithm-diagram.png]}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% Research Questions
+% ----------------------------------------------------------------------------
+\begin{frame}{Research Questions}
+
+    \begin{enumerate}
+        \item[\textbf{RQ1}] How do different \hl{negative sampling strategies} affect FF performance?
+
+        \vspace{0.8em}
+
+        \item[\textbf{RQ2}] Can FF models \hl{transfer knowledge} to new tasks?
+
+        \vspace{0.8em}
+
+        \item[\textbf{RQ3}] What is the \hl{root cause} of FF's limitations?
+
+        \vspace{0.8em}
+
+        \item[\textbf{RQ4}] Can \hl{bio-inspired modifications} improve FF?
+    \end{enumerate}
+
+    \vspace{1.5em}
+
+    \begin{block}{Key Finding Preview}
+        Standard FF achieves \alg{94.5\%} on MNIST but \al{fails catastrophically} at transfer learning
+    \end{block}
+
+\end{frame}
+
+% ============================================================================
+\section{Experimental Results}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+% RQ1: Negative Sampling
+% ----------------------------------------------------------------------------
+\begin{frame}{RQ1: Negative Sampling Strategies}
+
+    \textbf{Which negative sampling strategy works best?}
+
+    \vspace{1em}
+
+    \begin{table}
+        \centering
+        \begin{tabular}{lcc}
+            \hline\hline
+            \textbf{Strategy} & \textbf{MNIST Acc.} & \textbf{Notes} \\
+            \hline
+            Random Wrong Label & 94.5\% & Original Hinton method \\
+            Hybrid Negatives & 93.8\% & Mix of strategies \\
+            Hard Negatives & 91.2\% & Confused samples \\
+            Gaussian Noise & 88.4\% & Too easy to detect \\
+            \hline
+            \textit{Backprop Baseline} & \textit{99.2\%} & \textit{Upper bound} \\
+            \hline\hline
+        \end{tabular}
+    \end{table}
+
+    \vspace{1em}
+
+    \begin{itemize}
+        \item Random wrong label performs best (simple but effective)
+        \item \al{4.7\% gap} to backpropagation remains significant
+    \end{itemize}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% RQ2: Transfer Learning Paradox
+% ----------------------------------------------------------------------------
+\begin{frame}{RQ2: The Transfer Learning Paradox}
+
+    \begin{block}{Critical Discovery}
+        \centering
+        \Large
+        Standard FF transfer: \al{54\%} \\
+        Random initialization: \alg{72\%}
+    \end{block}
+
+    \vspace{1em}
+
+    \textbf{Experiment}: Train on MNIST $\rightarrow$ Transfer to Fashion-MNIST
+
+    \vspace{1em}
+
+    \begin{table}
+        \centering
+        \begin{tabular}{lc}
+            \hline\hline
+            \textbf{Method} & \textbf{Fashion-MNIST Acc.} \\
+            \hline
+            Backprop Transfer & 85.2\% \\
+            Random Initialization & 72.0\% \\
+            \al{Standard FF Transfer} & \al{54.0\%} \\
+            \hline\hline
+        \end{tabular}
+    \end{table}
+
+    \vspace{1em}
+
+    \centering
+    \al{FF features are WORSE than starting from scratch!}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% RQ3: Root Cause
+% ----------------------------------------------------------------------------
+\begin{frame}{RQ3: Root Cause --- Label Embedding}
+
+    \textbf{Why does FF fail at transfer?}
+
+    \vspace{1em}
+
+    \begin{columns}[T]
+        \begin{column}{0.55\textwidth}
+            \textbf{The Problem}
+            \begin{itemize}
+                \item FF embeds labels \hl{directly into input}
+                \item Features become \al{coupled to source labels}
+                \item Layer 1 learns: ``digit 3'' not ``curved edges''
+                \item New task has different labels $\rightarrow$ features unusable
+            \end{itemize}
+
+            \vspace{1em}
+
+            \textbf{Evidence}
+            \begin{itemize}
+                \item Label neurons: 10$\times$ higher activation variance
+                \item Feature visualization: Label-specific patterns
+                \item Gradient analysis: Label dimensions dominate
+            \end{itemize}
+        \end{column}
+
+        \begin{column}{0.42\textwidth}
+            % Placeholder for diagram
+            \begin{center}
+                \textit{[Figure: figures/label-embedding-diagram.png]}
+
+                \vspace{1em}
+
+                \small
+                \textbf{Standard FF Input:}\\
+                $[\underbrace{x_1, ..., x_n}_{\text{image}}, \underbrace{l_1, ..., l_k}_{\text{label}}]$
+
+                \vspace{0.5em}
+
+                Features entangled with labels!
+            \end{center}
+        \end{column}
+    \end{columns}
+
+\end{frame}
+
+% ============================================================================
+\section{Bio-Inspired Variants}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+% Overview of Bio-Inspired Attempts
+% ----------------------------------------------------------------------------
+\begin{frame}{Bio-Inspired Variants: Overview}
+
+    \textbf{Hypothesis}: More biologically realistic $\rightarrow$ better generalization?
+
+    \vspace{1em}
+
+    \begin{table}
+        \centering
+        \begin{tabular}{lcc}
+            \hline\hline
+            \textbf{Variant} & \textbf{Transfer Change} & \textbf{Status} \\
+            \hline
+            Three-Factor Hebbian & +1.5\% & \al{Marginal} \\
+            Prospective FF & $-$13.2\% & \al{Failed} \\
+            PCL-FF & N/A (17.5\% acc) & \al{Collapsed} \\
+            Layer Collaboration & +1.2\% & \al{Marginal} \\
+            \hline
+            \alg{CwC-FF} & \alg{+35\%} & \alg{Success!} \\
+            \hline\hline
+        \end{tabular}
+    \end{table}
+
+    \vspace{1em}
+
+    \begin{itemize}
+        \item Most bio-inspired changes don't address the core problem
+        \item \alb{CwC-FF} succeeds by removing label embedding entirely
+    \end{itemize}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% Three-Factor Hebbian
+% ----------------------------------------------------------------------------
+\begin{frame}{Three-Factor Hebbian Learning}
+
+    \textbf{Idea}: Add neuromodulatory signals like dopamine
+
+    \vspace{0.5em}
+
+    \begin{equation*}
+        \Delta w_{ij} = \eta \cdot \underbrace{h_i}_{\text{pre}} \cdot \underbrace{h_j}_{\text{post}} \cdot \underbrace{M}_{\text{modulator}}
+    \end{equation*}
+
+    \vspace{1em}
+
+    \begin{columns}[T]
+        \begin{column}{0.48\textwidth}
+            \textbf{Configurations Tested}
+            \begin{itemize}
+                \item Bottom-up only: $-$2.1\%
+                \item Top-down only: \alg{+1.5\%}
+                \item Bidirectional: $-$0.8\%
+            \end{itemize}
+        \end{column}
+
+        \begin{column}{0.48\textwidth}
+            \textbf{Why It Failed}
+            \begin{itemize}
+                \item Modulation doesn't fix label coupling
+                \item Top-down helps marginally
+                \item Still learns task-specific features
+            \end{itemize}
+        \end{column}
+    \end{columns}
+
+    \vspace{1em}
+
+    \begin{block}{Result}
+        Best case: \al{55.5\%} transfer (vs 72\% random init)
+    \end{block}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% Prospective FF
+% ----------------------------------------------------------------------------
+\begin{frame}{Prospective Configuration (Prospective FF)}
+
+    \textbf{Idea}: Predictive coding---layers predict future states
+
+    \vspace{1em}
+
+    \begin{columns}[T]
+        \begin{column}{0.48\textwidth}
+            \textbf{Method}
+            \begin{itemize}
+                \item Multiple forward iterations
+                \item Each layer predicts next layer
+                \item Iterative refinement
+            \end{itemize}
+
+            \vspace{0.5em}
+
+            \begin{equation*}
+                h^{(t+1)} = f(W \cdot h^{(t)} + b)
+            \end{equation*}
+        \end{column}
+
+        \begin{column}{0.48\textwidth}
+            \textbf{Surprising Result}
+            \begin{itemize}
+                \item 1 iteration: 54.0\% (baseline)
+                \item 3 iterations: 48.2\%
+                \item 5 iterations: \al{40.8\%}
+            \end{itemize}
+
+            \vspace{0.5em}
+
+            \al{More iterations = worse transfer!}
+        \end{column}
+    \end{columns}
+
+    \vspace{1em}
+
+    \begin{block}{Interpretation}
+        Iterative refinement \hl{amplifies} label-specific features, making transfer even harder
+    \end{block}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% PCL-FF
+% ----------------------------------------------------------------------------
+\begin{frame}{Predictive Coding Layer (PCL-FF)}
+
+    \textbf{Idea}: Full predictive coding with top-down predictions
+
+    \vspace{1em}
+
+    \begin{columns}[T]
+        \begin{column}{0.48\textwidth}
+            \textbf{Architecture}
+            \begin{itemize}
+                \item Prediction: $\hat{h}^l = W^{l+1 \rightarrow l} h^{l+1}$
+                \item Error: $e^l = h^l - \hat{h}^l$
+                \item Update based on prediction error
+            \end{itemize}
+        \end{column}
+
+        \begin{column}{0.48\textwidth}
+            \textbf{Catastrophic Failure}
+            \begin{itemize}
+                \item Final accuracy: \al{17.5\%}
+                \item Neuron death: \al{100\%}
+                \item All hidden units saturated
+            \end{itemize}
+        \end{column}
+    \end{columns}
+
+    \vspace{1em}
+
+    \begin{block}{Post-Mortem Analysis}
+        \begin{itemize}
+            \item Prediction errors explode during training
+            \item Neurons saturate to extreme values
+            \item No gradient signal for recovery
+        \end{itemize}
+    \end{block}
+
+    \vspace{0.5em}
+
+    \centering
+    \al{Lesson: Naive predictive coding incompatible with FF framework}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% Layer Collaboration
+% ----------------------------------------------------------------------------
+\begin{frame}{Layer Collaboration}
+
+    \textbf{Idea}: Allow layers to share information via lateral connections
+
+    \vspace{1em}
+
+    \begin{equation*}
+        G^l_{collab} = G^l + \gamma \cdot G^{l-1} + \gamma \cdot G^{l+1}
+    \end{equation*}
+
+    \vspace{1em}
+
+    \begin{table}
+        \centering
+        \begin{tabular}{ccc}
+            \hline\hline
+            $\gamma$ & MNIST Acc. & Transfer Acc. \\
+            \hline
+            0.0 & 94.5\% & 54.0\% \\
+            0.3 & 94.1\% & 54.8\% \\
+            0.5 & 93.8\% & 55.0\% \\
+            \textbf{0.7} & \textbf{93.2\%} & \textbf{55.2\%} \\
+            1.0 & 91.5\% & 53.1\% \\
+            \hline\hline
+        \end{tabular}
+    \end{table}
+
+    \vspace{1em}
+
+    \begin{itemize}
+        \item Best result: \al{+1.2\%} improvement (still below random init!)
+        \item Trade-off: Source accuracy decreases with higher $\gamma$
+    \end{itemize}
+
+\end{frame}
+
+% ============================================================================
+\section{The Solution: CwC-FF}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+% CwC-FF Introduction
+% ----------------------------------------------------------------------------
+\begin{frame}{The Solution: Contrastive without Coupling (CwC-FF)}
+
+    \textbf{Key Insight}: Remove label embedding entirely
+
+    \vspace{1em}
+
+    \begin{columns}[T]
+        \begin{column}{0.48\textwidth}
+            \textbf{Standard FF}
+            \begin{itemize}
+                \item Input: $[image, label]$
+                \item Positive: correct label
+                \item Negative: wrong label
+                \item \al{Features coupled to labels}
+            \end{itemize}
+        \end{column}
+
+        \begin{column}{0.48\textwidth}
+            \textbf{CwC-FF}
+            \begin{itemize}
+                \item Input: $[image]$ only
+                \item Positive: real images
+                \item Negative: corrupted images
+                \item \alg{Task-agnostic features}
+            \end{itemize}
+        \end{column}
+    \end{columns}
+
+    \vspace{1.5em}
+
+    \begin{block}{Corruption Strategies}
+        \begin{itemize}
+            \item Gaussian noise addition
+            \item Random pixel shuffling
+            \item Patch masking
+            \item Mixup augmentation
+        \end{itemize}
+    \end{block}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% CwC-FF Results
+% ----------------------------------------------------------------------------
+\begin{frame}{CwC-FF Results}
+
+    \begin{block}{Transfer Learning Success}
+        \centering
+        \Large
+        CwC-FF Transfer: \alg{89\%} \\
+        \small (vs 54\% standard FF, vs 72\% random init)
+    \end{block}
+
+    \vspace{1em}
+
+    \begin{table}
+        \centering
+        \begin{tabular}{lccc}
+            \hline\hline
+            \textbf{Method} & \textbf{Source} & \textbf{Transfer} & \textbf{$\Delta$ vs Random} \\
+            \hline
+            Random Init & --- & 72.0\% & 0\% \\
+            Standard FF & 94.5\% & 54.0\% & \al{$-$18\%} \\
+            Backprop & 99.2\% & 85.2\% & \alg{+13.2\%} \\
+            \alg{CwC-FF} & \alg{91.2\%} & \alg{89.0\%} & \alg{+17\%} \\
+            \hline\hline
+        \end{tabular}
+    \end{table}
+
+    \vspace{1em}
+
+    \begin{itemize}
+        \item CwC-FF: Slightly lower source accuracy, \hl{dramatically better transfer}
+        \item Approaches backprop transfer performance!
+    \end{itemize}
+
+\end{frame}
+
+% ============================================================================
+\section{Discussion}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+% Key Insights
+% ----------------------------------------------------------------------------
+\begin{frame}{Key Insights}
+
+    \begin{enumerate}
+        \item \textbf{Label embedding is the root cause of transfer failure}
+        \begin{itemize}
+            \item Features become task-specific, not general-purpose
+            \item More training $\rightarrow$ worse transfer
+        \end{itemize}
+
+        \vspace{0.8em}
+
+        \item \textbf{Bio-inspired modifications don't help (mostly)}
+        \begin{itemize}
+            \item They don't address the fundamental coupling problem
+            \item Some even make it worse (Prospective FF)
+        \end{itemize}
+
+        \vspace{0.8em}
+
+        \item \textbf{Decoupling labels from features is essential}
+        \begin{itemize}
+            \item CwC-FF removes labels from input
+            \item Learns corruption detection $\rightarrow$ general features
+        \end{itemize}
+
+        \vspace{0.8em}
+
+        \item \textbf{Trade-off: Source vs Transfer performance}
+        \begin{itemize}
+            \item CwC-FF: 91.2\% source (vs 94.5\% standard)
+            \item But: 89\% transfer (vs 54\% standard)
+        \end{itemize}
+    \end{enumerate}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% Why FF Hasn't Become the New Paradigm
+% ----------------------------------------------------------------------------
+\begin{frame}{Why FF Hasn't Become the New Paradigm}
+
+    \begin{columns}[T]
+        \begin{column}{0.48\textwidth}
+            \textbf{\al{Limitations}}
+            \begin{itemize}
+                \item 4.7\% accuracy gap to backprop
+                \item Catastrophic transfer failure
+                \item Requires careful negative sampling
+                \item Limited to supervised settings
+                \item No large-scale validation yet
+            \end{itemize}
+        \end{column}
+
+        \begin{column}{0.48\textwidth}
+            \textbf{\alg{Potential}}
+            \begin{itemize}
+                \item Truly local learning rules
+                \item Biologically plausible
+                \item CwC-FF fixes transfer issue
+                \item Potential for neuromorphic hardware
+                \item Energy efficiency benefits
+            \end{itemize}
+        \end{column}
+    \end{columns}
+
+    \vspace{1.5em}
+
+    \begin{block}{The Path Forward}
+        FF can succeed, but requires \hl{architectural changes} (like CwC-FF), not just biological enhancements
+    \end{block}
+
+\end{frame}
+
+% ============================================================================
+\section{Conclusion}
+% ============================================================================
+
+% ----------------------------------------------------------------------------
+% Conclusion
+% ----------------------------------------------------------------------------
+\begin{frame}{Conclusion}
+
+    \textbf{Summary}
+    \begin{itemize}
+        \item FF achieves 94.5\% on MNIST but \al{fails at transfer learning}
+        \item Root cause: \hl{Label embedding couples features to source task}
+        \item Bio-inspired variants provide only marginal improvements
+        \item \alg{CwC-FF solves the problem} by removing label embedding
+    \end{itemize}
+
+    \vspace{1em}
+
+    \textbf{Future Work}
+    \begin{itemize}
+        \item Scale CwC-FF to larger datasets (CIFAR-10, ImageNet)
+        \item Explore hybrid approaches (FF + backprop)
+        \item Neuromorphic hardware implementation
+        \item Unsupervised and self-supervised extensions
+    \end{itemize}
+
+    \vspace{1em}
+
+    \begin{block}{Take-Home Message}
+        Biological plausibility alone doesn't guarantee good ML properties.
+        \hl{Understanding failure modes} leads to principled solutions.
+    \end{block}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% References
+% ----------------------------------------------------------------------------
+\begin{frame}{References}
+
+    \small
+    \begin{itemize}
+        \item Hinton, G. (2022). \textit{The Forward-Forward Algorithm: Some Preliminary Investigations}. arXiv:2212.13345
+
+        \vspace{0.5em}
+
+        \item Lillicrap, T. P., et al. (2016). \textit{Random synaptic feedback weights support error backpropagation for deep learning}. Nature Communications.
+
+        \vspace{0.5em}
+
+        \item Whittington, J. C. R., \& Bogacz, R. (2017). \textit{An approximation of the error backpropagation algorithm in a predictive coding network}. Neural Computation.
+
+        \vspace{0.5em}
+
+        \item Sacramento, J., et al. (2018). \textit{Dendritic cortical microcircuits approximate the backpropagation algorithm}. NeurIPS.
+
+        \vspace{0.5em}
+
+        \item Ororbia, A., \& Mali, A. (2023). \textit{The Predictive Forward-Forward Algorithm}. arXiv.
+    \end{itemize}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% Thank You
+% ----------------------------------------------------------------------------
+\begin{frame}[plain]
+    \centering
+    \vspace{3em}
+
+    {\LARGE \textbf{Thank You}}
+
+    \vspace{2em}
+
+    {\large Questions?}
+
+    \vspace{3em}
+
+    \small
+    Code and experiments available at:\\
+    \texttt{github.com/[repository]}
+
+\end{frame}
+
+\end{document}
