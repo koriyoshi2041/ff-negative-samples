@@ -270,6 +270,62 @@ Where M(t) is the neuromodulatory signal that gates when learning occurs.
 | layer_agreement | 89.58% | 59.81% | -3.0% |
 | reward_prediction | 10.28% | 18.44% | **FAILED** |
 
+<details>
+<summary><b>🔍 Failure Analysis: Reward Prediction (10.28%)</b></summary>
+
+**What happened**: Accuracy collapsed to near-random (10% = 1/10 classes).
+
+**Root Cause**: The reward prediction error (RPE) signal was **too noisy and unstable**:
+
+```python
+# The problematic mechanism:
+rpe = actual_reward - expected_reward  # 1.0 or 0.0 minus running average
+
+# Problem 1: Binary reward (1 for positive, 0 for negative) creates
+# RPE that oscillates wildly: +0.5, -0.5, +0.5, -0.5...
+# This destabilizes the modulation signal.
+
+# Problem 2: Running average (momentum=0.99) adapts too slowly,
+# so RPE never converges to a meaningful signal.
+```
+
+**Why biology works but this doesn't**: Real dopamine signals are:
+- Temporally precise (ms-scale)
+- Tied to specific unexpected events
+- Modulated by context and history
+
+Our simplified binary RPE lacks all of these properties.
+
+**Potential fix**: Use prediction error from a value network, not binary reward.
+
+</details>
+
+<details>
+<summary><b>🔍 Failure Analysis: Layer Agreement (-3.0%)</b></summary>
+
+**What happened**: Performance dropped below baseline.
+
+**Root Cause**: Layer agreement creates **circular dependencies**:
+
+```python
+# Layer agreement: M(t) = correlation(layer_i, layer_{i+1})
+
+# Problem: Layer i's modulation depends on layer i+1's output,
+# but layer i+1's input depends on layer i's output.
+# This creates a feedback loop that destabilizes training.
+
+# Early in training:
+# - Layers have random, uncorrelated outputs
+# - Agreement signal is noisy
+# - Noisy modulation → worse learning → less agreement → more noise
+```
+
+**Why it hurts transfer**: Layers become **overly synchronized** on source task patterns. This tight coupling makes it harder to adapt to new tasks.
+
+**Potential fix**: Use agreement only in later training stages, or use asymmetric (top-down only) agreement.
+
+</details>
+
 ---
 
 ### 5.2 Prospective Configuration FF
@@ -287,6 +343,55 @@ Two-phase learning:
 
 **Result**: **FAILED** — More iterations made transfer worse.
 
+<details>
+<summary><b>🔍 Failure Analysis: Prospective FF (-13.2% transfer)</b></summary>
+
+**What happened**: MNIST accuracy was low (23%), and transfer gain was **negative** (-13.2% means transfer hurt performance).
+
+**Root Cause 1: Target inference creates overfitting**
+
+```python
+# The problematic mechanism:
+h_target = h_current + beta * feedback_proj(target_hint)
+
+# Problem: The "target hint" comes from label information.
+# With many iterations, the network learns to perfectly match
+# the label-derived target, creating STRONGER label coupling
+# than standard FF!
+
+# Iterations: 1 → 10 → 100
+# Label coupling: weak → medium → EXTREME
+# Transfer ability: ok → poor → terrible
+```
+
+**Root Cause 2: Consolidation amplifies the problem**
+
+```python
+# Consolidation loss: minimize (h_current - h_target)²
+
+# With many iterations:
+# - h_target becomes highly label-specific
+# - Consolidation forces weights to produce this exact pattern
+# - Features become "memorized" for source task labels
+```
+
+**Why the original paper worked (neural circuits, not classification)**:
+- Original prospective configuration was for sensory prediction
+- No discrete labels involved
+- Continuous prediction errors, not binary pos/neg
+
+**Why more iterations = worse transfer**:
+
+| Iterations | MNIST Acc | Transfer Gain | Explanation |
+|:----------:|:---------:|:-------------:|-------------|
+| 1 | 89.2% | +5.3% | Minimal label coupling |
+| 10 | 85.1% | +1.2% | Growing coupling |
+| 100 | 23.4% | **-13.2%** | Complete overfitting |
+
+**Potential fix**: Remove label from target hints; use self-supervised targets instead.
+
+</details>
+
 ---
 
 ### 5.3 Predictive Coding Light FF (PCL-FF)
@@ -301,6 +406,69 @@ Only **prediction errors** (surprise) propagate forward, not full activations.
 | Dead Neurons | 8% | **100%** |
 
 **Result**: **COMPLETE FAILURE** — Sparsity constraint killed all neurons.
+
+<details>
+<summary><b>🔍 Failure Analysis: PCL-FF (17.5%, 100% neuron death)</b></summary>
+
+**What happened**:
+- Accuracy dropped to 17.5% (barely above random 10%)
+- **100% of neurons died** (output = 0 for all inputs)
+
+**Root Cause 1: Sparsity penalty was too aggressive**
+
+```python
+# The killer:
+sparsity_penalty = h.abs().mean(dim=1) * sparsity_weight  # weight = 0.1
+
+# Goodness = base_goodness + reconstruction_bonus - sparsity_penalty
+
+# Problem: The sparsity penalty creates a DIRECT incentive to have
+# h = 0 (zero activations). Combined with ReLU, this means:
+# - Any negative pre-activation → 0
+# - Sparsity penalty pushes weights to make more pre-activations negative
+# - Cascade effect: more zeros → lower goodness → lower loss (!)
+# - Network learns that "dead neurons" = "good loss"
+```
+
+**Root Cause 2: Surprise masking created positive feedback loop**
+
+```python
+# Surprise mask: suppress predictable, transmit surprise
+surprise_mask = 1 - surprise_scale * (1 - surprise)
+
+# Problem: When neurons start dying:
+# - Dead neurons produce perfect predictions (0 predicts 0)
+# - Perfect prediction → low surprise → suppress more
+# - More suppression → more zeros → more death
+# - Positive feedback loop accelerates collapse
+```
+
+**The cascade of death (over epochs)**:
+
+```
+Epoch 10:   ~60% neurons active, accuracy 45%
+Epoch 50:   ~30% neurons active, accuracy 28%
+Epoch 100:  ~10% neurons active, accuracy 19%
+Epoch 200:  ~2% neurons active, accuracy 17%
+Epoch 500:  0% neurons active, accuracy 17.5% (random features)
+```
+
+**Why predictive coding works in biology but not here**:
+- Real neurons have **homeostatic mechanisms** preventing complete silencing
+- Intrinsic excitability adjusts to maintain activity levels
+- Biological sparsity is ~10-20%, not 0%
+
+**Failed fix attempts**:
+| Fix | Result |
+|-----|--------|
+| Lower sparsity_weight to 0.01 | Still 80% death |
+| Add activity regularization | 60% death, 35% accuracy |
+| Remove surprise mask | 40% death, 42% accuracy |
+| Remove both | Becomes standard FF |
+
+**Potential fix**: Add explicit **anti-death term**: `+ alive_bonus * (h > 0).float().mean()`
+
+</details>
 
 ---
 
