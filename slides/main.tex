@@ -575,9 +575,9 @@
         \begin{column}{0.48\textwidth}
             \textbf{CwC-FF}
             \begin{itemize}
-                \item Input: $[image]$ only
-                \item Positive: real images
-                \item Negative: corrupted images
+                \item Input: $[image]$ only (no label!)
+                \item Positive: high channel coherence
+                \item Negative: low channel coherence
                 \item \alg{Task-agnostic features}
             \end{itemize}
         \end{column}
@@ -585,12 +585,12 @@
 
     \vspace{1.5em}
 
-    \begin{block}{Corruption Strategies}
+    \begin{block}{Channel-wise Competition Mechanism}
         \begin{itemize}
-            \item Gaussian noise addition
-            \item Random pixel shuffling
-            \item Patch masking
-            \item Mixup augmentation
+            \item Neurons compete within channels
+            \item Winners (high activation) $\rightarrow$ positive signal
+            \item Losers (low activation) $\rightarrow$ negative signal
+            \item No labels needed $\rightarrow$ pure feature learning
         \end{itemize}
     \end{block}
 
@@ -794,7 +794,7 @@
 
     \small
     Code and experiments available at:\\
-    \texttt{github.com/[repository]}
+    \texttt{github.com/koriyoshi2041/ff-negative-samples}
 
 \end{frame}
 
