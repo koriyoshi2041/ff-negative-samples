@@ -496,11 +496,7 @@ Epoch 500:  0% neurons active, accuracy 17.5% (random features)
 ### Why Does Standard FF Fail at Transfer?
 
 <p align="center">
-<img src="figures/insight_root_cause.png" width="900">
-</p>
-
-<p align="center">
-<img src="figures/insight_label_embedding.png" width="900">
+<img src="figures/label_embedding_explained.png" width="1000">
 </p>
 
 **The Label Embedding Trap**:
