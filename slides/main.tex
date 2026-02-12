@@ -264,6 +264,52 @@
 
 \end{frame}
 
+% ----------------------------------------------------------------------------
+% Our Contributions
+% ----------------------------------------------------------------------------
+\begin{frame}{Our Contributions}
+
+    \begin{enumerate}
+        \item \textbf{First systematic comparison of 6 negative sampling strategies}
+        \begin{itemize}
+            \item Fair comparison: 1000 epochs per layer for each strategy
+            \item Finding: Simple \texttt{wrong\_label} beats all complex alternatives
+        \end{itemize}
+
+        \vspace{0.5em}
+
+        \item \textbf{Discovery of the ``Transfer Learning Paradox''}
+        \begin{itemize}
+            \item FF features transfer \al{worse} than random initialization
+            \item First to systematically document this critical limitation
+        \end{itemize}
+
+        \vspace{0.5em}
+
+        \item \textbf{Root cause analysis: Label embedding}
+        \begin{itemize}
+            \item Identified why FF fails: features coupled to source labels
+            \item Provided evidence: activation variance, gradient analysis
+        \end{itemize}
+
+        \vspace{0.5em}
+
+        \item \textbf{Implementation of 5 bio-inspired variants}
+        \begin{itemize}
+            \item Three-Factor Hebbian, Prospective FF, PCL-FF, Layer Collab
+            \item Comprehensive failure analysis with code
+        \end{itemize}
+
+        \vspace{0.5em}
+
+        \item \textbf{Validation of CwC-FF as the solution}
+        \begin{itemize}
+            \item \alg{89.05\%} transfer accuracy (vs 54.19\% standard FF)
+        \end{itemize}
+    \end{enumerate}
+
+\end{frame}
+
 % ============================================================================
 \section{Experiments \& Results}
 % ============================================================================
@@ -641,6 +687,50 @@
                 \item Epoch 100: 10\% alive
                 \item Epoch 500: 0\% alive
             \end{itemize}
+        \end{column}
+    \end{columns}
+
+\end{frame}
+
+% ----------------------------------------------------------------------------
+% Layer Collaboration
+% ----------------------------------------------------------------------------
+\begin{frame}{Layer Collaboration}
+
+    \textbf{Inspiration}: [Lorberbom et al., AAAI 2024] --- Inter-layer information flow
+
+    \vspace{0.5em}
+
+    \begin{columns}[T]
+        \begin{column}{0.50\textwidth}
+            \textbf{Idea}: Layers share goodness information
+
+            \vspace{0.3em}
+
+            \begin{equation*}
+                G^l_{collab} = G^l + \gamma \cdot G^{l-1} + \gamma \cdot G^{l+1}
+            \end{equation*}
+
+            \vspace{0.5em}
+
+            \textbf{$\gamma$ controls collaboration strength}
+            \begin{itemize}
+                \item $\gamma = 0$: Independent layers (baseline)
+                \item $\gamma = 0.7$: Optimal collaboration
+                \item $\gamma = 1.0$: Too much coupling
+            \end{itemize}
+        \end{column}
+
+        \begin{column}{0.48\textwidth}
+            \begin{center}
+                \includegraphics[width=\textwidth]{layer_collab_heatmap.png}
+            \end{center}
+
+            \vspace{-0.5em}
+
+            \small
+            \textbf{Result}: +1.18\% on MNIST\\
+            \al{Still doesn't fix transfer problem}
         \end{column}
     \end{columns}
 
